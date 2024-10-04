@@ -120,7 +120,16 @@ async function getProduct(page: Page): Promise<Product> {
   }
 
   // Lấy thông tin các options
-  const options: Record<string, { required: boolean; values: string[] }> = {};
+  const options: Record<
+    string,
+    {
+      required: boolean;
+      values: {
+        label: string;
+        value: string;
+      }[];
+    }
+  > = {};
 
   const optionsLocator = page.locator(".attributes").locator("dl");
   const optionLabelLocator = await optionsLocator.locator("dt").all();
@@ -135,7 +144,7 @@ async function getProduct(page: Page): Promise<Product> {
       .locator("ul")
       .locator("li")
       .all();
-    const values: string[] = [];
+    const values: { label: string; value: string }[] = [];
 
     for (let optionValue of optionValues) {
       const value = (await optionValue.locator("label").innerText()).trim();
@@ -148,9 +157,14 @@ async function getProduct(page: Page): Promise<Product> {
           style?.match(/#[0-9a-fA-F]{6}/)?.[0] ||
           style?.match(/#[0-9a-fA-F]{3}/)?.[0] ||
           "";
-        values.push(hexCode);
+
+        const label =
+          (await optionValue.locator("span").first().getAttribute("title")) ||
+          "";
+        values.push({ label, value: hexCode });
       } else {
-        values.push(value);
+        const label = value;
+        values.push({ label, value });
       }
     }
 
@@ -163,37 +177,46 @@ async function getProduct(page: Page): Promise<Product> {
 
   const variants: {
     title: string;
-    inventoryQuantity: number;
-    // allowBackOrder: boolean;
+    inventoryQuantity: number | null;
     priceVnd: number | null;
-    options: Record<string, string>;
+    options: Record<string, { label: string; value: string }>;
+    // allowBackOrder: boolean;
     // manageInventory: boolean;
   }[] = [];
+
   if (optionKeys.length === 1) {
     for (let i = 0; i < optionValues[0].values.length; i++) {
-      const title = optionValues[0].values[i];
+      const title = optionValues[0].values[i].label;
       const allowBackOrder = false;
       const manageInventory = true;
       const priceVnd = productPrice ? Number(productPrice) : null;
       const options = {
         [optionKeys[0]]: optionValues[0].values[i],
       };
-      const inventoryQuantity = quantity || 0;
+      await page
+        .getByTitle(optionValues[0].values[i].label)
+        .locator("span")
+        .click();
+      await sleep(500);
+      const inventoryQuantity = Number(
+        (await page.locator(".stock").locator(".value").innerText()).split(
+          " "
+        )[0]
+      );
 
       variants.push({
         title,
         inventoryQuantity,
-        // allowBackOrder,
         priceVnd,
         options,
+        // allowBackOrder,
         // manageInventory,
       });
     }
   } else if (optionKeys.length === 2) {
     for (let i = 0; i < optionValues[0].values.length; i++) {
       for (let j = 0; j < optionValues[1].values.length; j++) {
-        const title = `${optionValues[0].values[i]} / ${optionValues[1].values[j]}`;
-        const inventoryQuantity = quantity || 0;
+        const title = `${optionValues[0].values[i].label} / ${optionValues[1].values[j].label}`;
         const allowBackOrder = false;
         const manageInventory = true;
         const priceVnd = productPrice ? Number(productPrice) : null;
@@ -201,13 +224,34 @@ async function getProduct(page: Page): Promise<Product> {
           [optionKeys[0]]: optionValues[0].values[i],
           [optionKeys[1]]: optionValues[1].values[j],
         };
+        await page
+          .getByTitle(optionValues[0].values[i].label)
+          .locator("span")
+          .click();
+
+        let inventoryQuantity: number | null = null;
+        await expect(
+          page.getByText(optionValues[1].values[j].label, { exact: true })
+        )
+          .toBeEnabled()
+          .then(async () => {
+            await page
+              .getByText(optionValues[1].values[j].label, { exact: true })
+              .click();
+            await sleep(500);
+            inventoryQuantity = Number(
+              (
+                await page.locator(".stock").locator(".value").innerText()
+              ).split(" ")[0]
+            );
+          }).catch(() => {});
 
         variants.push({
           title,
           inventoryQuantity,
-          // allowBackOrder,
           priceVnd,
           options,
+          // allowBackOrder,
           // manageInventory,
         });
       }
@@ -220,20 +264,20 @@ async function getProduct(page: Page): Promise<Product> {
     priceVnd: productPrice ? Number(productPrice) : null,
     manufacturer: manufacturer || null,
     quantity: Number(quantity),
-    status: "published",
-    // discountable: true,
     shortDescription,
     description,
     thumbnail: imageSrcList[0],
     images: imageSrcList,
     variants: variants.length > 0 ? variants : null,
     options,
+    status: "published",
+    // discountable: true,
   };
 
   return product;
 }
 
-test("test", async ({ page }) => {
+test("crawl", async ({ page }) => {
   test.setTimeout(10 * 60 * 1000);
   const pageUrl = "https://bhswim.com";
   const categories = {
@@ -261,7 +305,7 @@ test("test", async ({ page }) => {
       pageUrl +
       categories.newProducts.url +
       `?pagenumber=${i}&pagesize=${productPerPage}`;
-    await page.goto(url);
+    await page.goto(url, { timeout: 10000 });
     // Lấy danh sách url sản phẩm
     await expect(page.locator(".item-grid").locator(".item-box")).toHaveCount(
       productPerPage
@@ -280,10 +324,37 @@ test("test", async ({ page }) => {
   }
   // Lấy thông tin sản phẩm
   // for (let url of productUrl) {
-  await page.goto(pageUrl + productUrl[0]);
+  await page.goto(pageUrl + productUrl[7]);
   const product = await getProduct(page);
   products.push(product);
   // }
 
   fs.writeFileSync("san-pham-moi.txt", JSON.stringify(products));
+});
+
+test("lay-ton-kho", async ({ page }) => {
+  await page.goto(
+    "https://bhswim.com/qu%E1%BA%A7n-b%C6%A1i-l%E1%BB%ADng-nam-arena-ast22182-42cm-2"
+  );
+  const stock = (
+    await page.locator(".stock").locator(".value").innerText()
+  ).split(" ");
+  expect(stock).toHaveLength(3);
+  const quantity = Number(stock[0]);
+  console.log(quantity);
+
+  (await page.locator(".attributes").locator("dd").all())[1]
+    .locator("li")
+    .first()
+    .locator("label")
+    .click();
+
+  await sleep(500);
+  const stock2 = (
+    await page.locator(".stock").locator(".value").innerText()
+  ).split(" ");
+  expect(stock2).toHaveLength(3);
+  const quantity2 = Number(stock2[0]);
+  console.log(quantity2);
+  await sleep(5000);
 });

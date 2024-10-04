@@ -13,10 +13,16 @@ export type Product = {
   variants?:
     | {
         title: string;
-        inventoryQuantity: number;
+        inventoryQuantity: number | null;
         allowBackOrder?: boolean;
         priceVnd: number | null;
-        options: Record<string, string>;
+        options: Record<
+          string,
+          {
+            label: string;
+            value: string;
+          }
+        >;
         manageInventory?: boolean;
       }[]
     | null;
@@ -24,7 +30,10 @@ export type Product = {
     string,
     {
       required: boolean;
-      values: string[];
+      values: {
+        label: string;
+        value: string;
+      }[];
     }
   > | null;
 };
