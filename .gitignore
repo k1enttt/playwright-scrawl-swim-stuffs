@@ -3,3 +3,7 @@ node_modules/
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# File output from the test run
+*.csv
+*.json

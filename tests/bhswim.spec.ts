@@ -1,9 +1,9 @@
 import { test, expect, Page } from "@playwright/test";
-import { Product } from "./bhswim.type";
+import { RawProduct } from "./bhswim.type";
 import fs from "fs";
-import { sleep } from "./utils";
+import { convertJsonToCsvManually, convertJsonToCsv, convertRawToMedusaProduct, sleep } from "./utils";
 
-async function getProduct(page: Page): Promise<Product> {
+async function getProduct(page: Page): Promise<RawProduct> {
   // Lấy tên sản phẩm
   const productTitle = await expect(page.locator(".product-name").locator("h1"))
     .toHaveCount(1)
@@ -181,7 +181,7 @@ async function getProduct(page: Page): Promise<Product> {
     priceVnd: number | null;
     options: Record<string, { label: string; value: string }>;
     // allowBackOrder: boolean;
-    // manageInventory: boolean;
+    manageInventory: boolean;
   }[] = [];
 
   if (optionKeys.length === 1) {
@@ -210,7 +210,7 @@ async function getProduct(page: Page): Promise<Product> {
         priceVnd,
         options,
         // allowBackOrder,
-        // manageInventory,
+        manageInventory,
       });
     }
   } else if (optionKeys.length === 2) {
@@ -252,13 +252,13 @@ async function getProduct(page: Page): Promise<Product> {
           priceVnd,
           options,
           // allowBackOrder,
-          // manageInventory,
+          manageInventory,
         });
       }
     }
   }
 
-  const product: Product = {
+  const product: RawProduct = {
     handler,
     title: productTitle,
     priceVnd: productPrice ? Number(productPrice) : null,
@@ -284,7 +284,7 @@ test("crawl", async ({ page }) => {
     newProducts: { name: "Sản phẩm mới", url: "/newproducts" },
   };
   const productPerPage: 20 | 30 | 50 = 20;
-  const products: Product[] = [];
+  const products: RawProduct[] = [];
   const productUrl: string[] = [];
 
   // Mở trang web và chuyển đến trang danh sách sản phẩm
@@ -324,12 +324,14 @@ test("crawl", async ({ page }) => {
   }
   // Lấy thông tin sản phẩm
   // for (let url of productUrl) {
-  await page.goto(pageUrl + productUrl[7]);
+  await page.goto(pageUrl + productUrl[6]);
   const product = await getProduct(page);
   products.push(product);
   // }
 
-  fs.writeFileSync("san-pham-moi.txt", JSON.stringify(products));
+  const convertedData = convertRawToMedusaProduct(products[0]);
+  fs.writeFileSync("san-pham-moi.json", JSON.stringify(convertedData));
+  convertJsonToCsv();
 });
 
 test("lay-ton-kho", async ({ page }) => {

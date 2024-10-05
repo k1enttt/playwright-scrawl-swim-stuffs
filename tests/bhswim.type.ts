@@ -1,4 +1,4 @@
-export type Product = {
+export type RawProduct = {
   handler: string;
   title: string;
   manufacturer: string | null;
@@ -37,3 +37,52 @@ export type Product = {
     }
   > | null;
 };
+
+export type MedusaProduct = {
+  "Product Id": string;
+  "Product Handle": string;
+  "Product Title": string;
+  "Product Subtitle": string;
+  "Product Description": string;
+  "Product Status": "published" | "draft";
+  "Product Thumbnail": string;
+  "Product Weight": string;
+  "Product Length": string;
+  "Product Width": string;
+  "Product Height": string;
+  "Product HS Code": string;
+  "Product Origin Country": string;
+  "Product MID Code": string;
+  "Product Material": string;
+  "Product Collection Title": string;
+  "Product Collection Handle": string;
+  "Product Type": string;
+  "Product Tags": string;
+  "Product Discountable": boolean;
+  "Product External Id": string;
+  "Product Profile Name": string;
+  "Product Profile Type": string;
+  "Variant Id": string;
+  "Variant Title": string;
+  "Variant SKU": string;
+  "Variant Barcode": string;
+  "Variant Inventory Quantity": number;
+  "Variant Allow Backorder": boolean;
+  "Variant Manage Inventory": boolean;
+  "Variant Weight": string;
+  "Variant Length": string;
+  "Variant Width": string;
+  "Variant Height": string;
+  "Variant HS Code": string;
+  "Variant Origin Country": string;
+  "Variant MID Code": string;
+  "Variant Material": string;
+  "Price EUR": string;
+  "Price USD": string;
+  "Price VND": string;
+  "Option 1 Name": string;
+  "Option 1 Value": string;
+  "Image 1 Url": string;
+  "Image 2 Url": string;
+};
+
