@@ -10,7 +10,7 @@ export type RawProduct = {
   thumbnail: string | null;
   images: string[] | null;
   priceVnd: number | null;
-  variants?:
+  variant?:
     | {
         title: string;
         inventoryQuantity: number | null;
@@ -24,18 +24,8 @@ export type RawProduct = {
           }
         >;
         manageInventory?: boolean;
-      }[]
+      }
     | null;
-  options?: Record<
-    string,
-    {
-      required: boolean;
-      values: {
-        label: string;
-        value: string;
-      }[];
-    }
-  > | null;
 };
 
 export type MedusaProduct = {
@@ -82,7 +72,17 @@ export type MedusaProduct = {
   "Price VND": string;
   "Option 1 Name": string;
   "Option 1 Value": string;
+  "Option 2 Name": string;
+  "Option 2 Value": string;
   "Image 1 Url": string;
   "Image 2 Url": string;
+  "Image 3 Url": string;
+  "Image 4 Url": string;
+  "Image 5 Url": string;
+  "Image 6 Url": string;
+  "Image 7 Url": string;
+  "Image 8 Url": string;
+  "Image 9 Url": string;
+  "Image 10 Url": string;
 };
 

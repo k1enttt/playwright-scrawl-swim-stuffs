@@ -148,10 +148,12 @@ export function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export const convertRawToMedusaProduct = (
-  rawProduct: RawProduct
-): MedusaProduct => {
-  return {
+export const convertRawToMedusaProduct = (rawProduct: RawProduct): MedusaProduct | null => {
+  if (!rawProduct.variant) {
+    return null;
+  }
+
+  const product: MedusaProduct = {
     "Product Id": "",
     "Product Handle": rawProduct.handler,
     "Product Title": rawProduct.title,
@@ -171,23 +173,17 @@ export const convertRawToMedusaProduct = (
     "Product Collection Handle": "", // Assuming no collection handle in RawProduct
     "Product Type": "", // Assuming no type in RawProduct
     "Product Tags": "", // Assuming no tags in RawProduct
-    "Product Discountable": rawProduct.discountable || false,
+    "Product Discountable": true, // Assuming all products are discountable
     "Product External Id": "", // Assuming no external ID in RawProduct
     "Product Profile Name": "", // Assuming no profile name in RawProduct
     "Product Profile Type": "", // Assuming no profile type in RawProduct
     "Variant Id": "", // Assuming no variant ID in RawProduct
-    "Variant Title": rawProduct.variants ? rawProduct.variants[0].title : "",
+    "Variant Title": rawProduct.variant.title || "",
     "Variant SKU": "", // Assuming no SKU in RawProduct
     "Variant Barcode": "", // Assuming no barcode in RawProduct
-    "Variant Inventory Quantity": rawProduct.variants
-      ? rawProduct.variants[0].inventoryQuantity || 0
-      : 0,
-    "Variant Allow Backorder": rawProduct.variants
-      ? rawProduct.variants[0].allowBackOrder || false
-      : false,
-    "Variant Manage Inventory": rawProduct.variants
-      ? rawProduct.variants[0].manageInventory || false
-      : false,
+    "Variant Inventory Quantity": rawProduct.variant.inventoryQuantity || 0,
+    "Variant Allow Backorder": false,
+    "Variant Manage Inventory": true,
     "Variant Weight": "", // Assuming no weight in RawProduct
     "Variant Length": "", // Assuming no length in RawProduct
     "Variant Width": "", // Assuming no width in RawProduct
@@ -199,15 +195,38 @@ export const convertRawToMedusaProduct = (
     "Price EUR": "", // Assuming no EUR price in RawProduct
     "Price USD": "", // Assuming no USD price in RawProduct;
     "Price VND": rawProduct.priceVnd?.toString() || "",
-    "Option 1 Name": rawProduct.options
-      ? Object.keys(rawProduct.options)[0]
+    "Option 1 Name": rawProduct.variant.options
+      ? Object.keys(rawProduct.variant.options)[0]
       : "",
-    "Option 1 Value": rawProduct.options
-      ? Object.values(rawProduct.options)[0].values[0].label
+    "Option 1 Value": rawProduct.variant.options
+      ? Object.values(rawProduct.variant.options)[0].label
       : "",
-    "Image 1 Url": rawProduct.images ? rawProduct.images[0] : "",
-    "Image 2 Url": rawProduct.images ? rawProduct.images[1] : "",
+    "Option 2 Name": rawProduct.variant.options
+      ? Object.keys(rawProduct.variant.options)[1]
+      : "",
+    "Option 2 Value": rawProduct.variant.options
+      ? Object.values(rawProduct.variant.options)[1].label
+      : "",
+    "Image 1 Url": "",
+    "Image 2 Url": "",
+    "Image 3 Url": "",
+    "Image 4 Url": "",
+    "Image 5 Url": "",
+    "Image 6 Url": "",
+    "Image 7 Url": "",
+    "Image 8 Url": "",
+    "Image 9 Url": "",
+    "Image 10 Url": "",
   };
+
+  for (const image in rawProduct.images) {
+    if (parseInt(image) >= 5) {
+      break;
+    }
+    product[`Image ${parseInt(image) + 1} Url`] = rawProduct.images[image];
+  }
+
+  return product;
 };
 
 export function convertJsonToCsv() {
@@ -217,7 +236,7 @@ export function convertJsonToCsv() {
   var options = {
     delimiter: ";",
     wrap: false,
-    headers: "key"
+    headers: "key",
   };
   /* supported options
  
@@ -247,34 +266,4 @@ export function convertJsonToCsv() {
     }
     console.log("Conversion successful. CSV file created.");
   });
-}
-
-export function convertJsonToCsvManually(jsonData: any[]) {
-  let csv = "";
-
-  // Extract headers
-  // const headers = Object.keys(jsonData[0]);
-  // csv += headers.join(',') + '\n';
-
-  // Medusa product headers
-  const medusaHeaders =
-    "Product Id;Product Handle;Product Title;Product Subtitle;Product Description;Product Status;Product Thumbnail;Product Weight;Product Length;Product Width;Product Height;Product HS Code;Product Origin Country;Product MID Code;Product Material;Product Collection Title;Product Collection Handle;Product Type;Product Tags;Product Discountable;Product External Id;Product Profile Name;Product Profile Type;Variant Id;Variant Title;Variant SKU;Variant Barcode;Variant Inventory Quantity;Variant Allow Backorder;Variant Manage Inventory;Variant Weight;Variant Length;Variant Width;Variant Height;Variant HS Code;Variant Origin";
-  csv += medusaHeaders + "\n";
-
-  // Extract values
-  const headers = medusaHeaders.split(";");
-  jsonData.forEach((obj) => {
-    const values = headers.map((header) => obj[header]);
-    csv += values.join(";") + "\n";
-  });
-
-  fs.writeFile("output-manually.csv", csv, "utf-8", (err) => {
-    if (err) {
-      console.error(err);
-      return;
-    }
-    console.log("Conversion successful. CSV file created.");
-  });
-
-  return csv;
 }

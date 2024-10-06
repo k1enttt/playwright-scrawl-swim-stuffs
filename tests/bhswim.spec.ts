@@ -1,9 +1,11 @@
 import { test, expect, Page } from "@playwright/test";
 import { RawProduct } from "./bhswim.type";
 import fs from "fs";
-import { convertJsonToCsvManually, convertJsonToCsv, convertRawToMedusaProduct, sleep } from "./utils";
+import { convertJsonToCsv, convertRawToMedusaProduct, sleep } from "./utils";
 
-async function getProduct(page: Page): Promise<RawProduct> {
+async function getProduct(page: Page): Promise<RawProduct[]> {
+  const products: RawProduct[] = [];
+
   // Lấy tên sản phẩm
   const productTitle = await expect(page.locator(".product-name").locator("h1"))
     .toHaveCount(1)
@@ -175,20 +177,29 @@ async function getProduct(page: Page): Promise<RawProduct> {
   const optionKeys = Object.keys(options);
   const optionValues = Object.values(options);
 
-  const variants: {
-    title: string;
-    inventoryQuantity: number | null;
-    priceVnd: number | null;
-    options: Record<string, { label: string; value: string }>;
-    // allowBackOrder: boolean;
-    manageInventory: boolean;
-  }[] = [];
-
-  if (optionKeys.length === 1) {
+  if (optionKeys.length === 0) {
+    products.push({
+      handler,
+      title: productTitle,
+      priceVnd: productPrice ? Number(productPrice) : null,
+      manufacturer: manufacturer || null,
+      quantity: Number(quantity),
+      shortDescription,
+      description,
+      thumbnail: imageSrcList[0],
+      images: imageSrcList,
+      variant: {
+        title: productTitle,
+        inventoryQuantity: Number(quantity),
+        priceVnd: productPrice ? Number(productPrice) : null,
+        options: {},
+        manageInventory: true,
+      },
+      status: "published",
+    });
+  } else if (optionKeys.length === 1) {
     for (let i = 0; i < optionValues[0].values.length; i++) {
       const title = optionValues[0].values[i].label;
-      const allowBackOrder = false;
-      const manageInventory = true;
       const priceVnd = productPrice ? Number(productPrice) : null;
       const options = {
         [optionKeys[0]]: optionValues[0].values[i],
@@ -204,13 +215,23 @@ async function getProduct(page: Page): Promise<RawProduct> {
         )[0]
       );
 
-      variants.push({
-        title,
-        inventoryQuantity,
-        priceVnd,
-        options,
-        // allowBackOrder,
-        manageInventory,
+      products.push({
+        handler,
+        title: productTitle,
+        priceVnd: productPrice ? Number(productPrice) : null,
+        manufacturer: manufacturer || null,
+        quantity: Number(quantity),
+        shortDescription,
+        description,
+        thumbnail: imageSrcList[0],
+        images: imageSrcList,
+        variant: {
+          title,
+          inventoryQuantity,
+          priceVnd,
+          options,
+        },
+        status: "published",
       });
     }
   } else if (optionKeys.length === 2) {
@@ -244,37 +265,40 @@ async function getProduct(page: Page): Promise<RawProduct> {
                 await page.locator(".stock").locator(".value").innerText()
               ).split(" ")[0]
             );
-          }).catch(() => {});
+          })
+          .catch(() => {});
 
-        variants.push({
-          title,
-          inventoryQuantity,
-          priceVnd,
-          options,
-          // allowBackOrder,
-          manageInventory,
+        products.push({
+          handler,
+          title: productTitle,
+          priceVnd: productPrice ? Number(productPrice) : null,
+          manufacturer: manufacturer || null,
+          quantity: Number(quantity),
+          shortDescription,
+          description,
+          thumbnail: imageSrcList[0],
+          images: imageSrcList,
+          variant: {
+            title,
+            inventoryQuantity,
+            priceVnd,
+            options,
+            // allowBackOrder,
+            manageInventory,
+          },
+          status: "published",
+          // discountable: true,
         });
       }
     }
   }
 
-  const product: RawProduct = {
-    handler,
-    title: productTitle,
-    priceVnd: productPrice ? Number(productPrice) : null,
-    manufacturer: manufacturer || null,
-    quantity: Number(quantity),
-    shortDescription,
-    description,
-    thumbnail: imageSrcList[0],
-    images: imageSrcList,
-    variants: variants.length > 0 ? variants : null,
-    options,
-    status: "published",
-    // discountable: true,
-  };
-
-  return product;
+  // Convert products array to Object format
+  const productsObject = products.reduce((acc, product) => {
+    const key = product.handler;
+    return { ...acc, [key]: product };
+  });
+  return products;
 }
 
 test("crawl", async ({ page }) => {
@@ -325,11 +349,13 @@ test("crawl", async ({ page }) => {
   // Lấy thông tin sản phẩm
   // for (let url of productUrl) {
   await page.goto(pageUrl + productUrl[6]);
-  const product = await getProduct(page);
-  products.push(product);
+  const productVariants = await getProduct(page);
+  products.push(...productVariants);
   // }
 
-  const convertedData = convertRawToMedusaProduct(products[0]);
+  const convertedData = products.map((product) =>
+    convertRawToMedusaProduct(product)
+  );
   fs.writeFileSync("san-pham-moi.json", JSON.stringify(convertedData));
   convertJsonToCsv();
 });
