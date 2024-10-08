@@ -1,9 +1,9 @@
 import { test, expect, Page } from "@playwright/test";
 import { RawProduct } from "./bhswim.type";
 import fs from "fs";
-import { convertJsonToCsv, convertRawToMedusaProduct, sleep } from "./utils";
+import { convertJsonToCsv, convertRawToMedusaProduct, convertRawToSearchingData, sleep } from "./utils";
 
-async function getProduct(page: Page): Promise<RawProduct[]> {
+async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
   const products: RawProduct[] = [];
 
   // Lấy tên sản phẩm
@@ -51,11 +51,15 @@ async function getProduct(page: Page): Promise<RawProduct[]> {
     await sleep(1000);
 
     // Lấy số lượng sản phẩm
-    const stock = (
-      await page.locator(".stock").locator(".value").innerText()
-    ).split(" ");
-    expect(stock).toHaveLength(3);
-    quantity = Number(stock[0]);
+    await expect(page.locator(".stock").locator(".value")).toHaveCount(1).then(
+      async () => {
+        const stock = (
+          await page.locator(".stock").locator(".value").innerText()
+        ).split(" ");
+        expect(stock).toHaveLength(3);
+        quantity = Number(stock[0]);
+      }
+    );
   } catch (error) {
     quantity = null;
   }
@@ -182,6 +186,7 @@ async function getProduct(page: Page): Promise<RawProduct[]> {
       handler,
       title: productTitle,
       priceVnd: productPrice ? Number(productPrice) : null,
+      category,
       manufacturer: manufacturer || null,
       quantity: Number(quantity),
       shortDescription,
@@ -219,6 +224,7 @@ async function getProduct(page: Page): Promise<RawProduct[]> {
         handler,
         title: productTitle,
         priceVnd: productPrice ? Number(productPrice) : null,
+        category,
         manufacturer: manufacturer || null,
         quantity: Number(quantity),
         shortDescription,
@@ -272,6 +278,7 @@ async function getProduct(page: Page): Promise<RawProduct[]> {
           handler,
           title: productTitle,
           priceVnd: productPrice ? Number(productPrice) : null,
+          category,
           manufacturer: manufacturer || null,
           quantity: Number(quantity),
           shortDescription,
@@ -348,16 +355,18 @@ test("crawl", async ({ page }) => {
   }
   // Lấy thông tin sản phẩm
   // for (let url of productUrl) {
-  await page.goto(pageUrl + productUrl[6]);
-  const productVariants = await getProduct(page);
+  await page.goto(pageUrl + productUrl[0]);
+  const productVariants = await getProduct(page, categories.newProducts.name);
   products.push(...productVariants);
   // }
 
-  const convertedData = products.map((product) =>
-    convertRawToMedusaProduct(product)
-  );
-  fs.writeFileSync("san-pham-moi.json", JSON.stringify(convertedData));
-  convertJsonToCsv();
+  // const convertedData = products.map((product) =>
+  //   convertRawToMedusaProduct(product)
+  // );
+  const searchData = convertRawToSearchingData(products);
+  // fs.writeFileSync("./output/products.json", JSON.stringify(convertedData));
+  fs.writeFileSync("./output/search.json", JSON.stringify(searchData));
+  // convertJsonToCsv("./output/products.json", "./output/products.csv");
 });
 
 test("lay-ton-kho", async ({ page }) => {

@@ -148,7 +148,9 @@ export function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export const convertRawToMedusaProduct = (rawProduct: RawProduct): MedusaProduct | null => {
+export const convertRawToMedusaProduct = (
+  rawProduct: RawProduct
+): MedusaProduct | null => {
   if (!rawProduct.variant) {
     return null;
   }
@@ -172,7 +174,7 @@ export const convertRawToMedusaProduct = (rawProduct: RawProduct): MedusaProduct
     "Product Collection Title": "", // Assuming no collection title in RawProduct
     "Product Collection Handle": "", // Assuming no collection handle in RawProduct
     "Product Type": "", // Assuming no type in RawProduct
-    "Product Tags": "", // Assuming no tags in RawProduct
+    "Product Tags": rawProduct.category || "", // Assuming no tags in RawProduct
     "Product Discountable": true, // Assuming all products are discountable
     "Product External Id": "", // Assuming no external ID in RawProduct
     "Product Profile Name": "", // Assuming no profile name in RawProduct
@@ -199,13 +201,13 @@ export const convertRawToMedusaProduct = (rawProduct: RawProduct): MedusaProduct
       ? Object.keys(rawProduct.variant.options)[0]
       : "",
     "Option 1 Value": rawProduct.variant.options
-      ? Object.values(rawProduct.variant.options)[0].label
+      ? Object.values(rawProduct.variant.options)[0]?.label || ""
       : "",
     "Option 2 Name": rawProduct.variant.options
       ? Object.keys(rawProduct.variant.options)[1]
       : "",
     "Option 2 Value": rawProduct.variant.options
-      ? Object.values(rawProduct.variant.options)[1].label
+      ? Object.values(rawProduct.variant.options)[1]?.label || ""
       : "",
     "Image 1 Url": "",
     "Image 2 Url": "",
@@ -229,10 +231,14 @@ export const convertRawToMedusaProduct = (rawProduct: RawProduct): MedusaProduct
   return product;
 };
 
-export function convertJsonToCsv() {
-  var data = fs.readFileSync(path.join(__dirname, "../san-pham-moi.json"), {
-    encoding: "utf8",
-  });
+export function convertJsonToCsv(inputPath: string, outputPath: string) {
+  // "./output/products.json"
+  var data = fs.readFileSync(
+    inputPath,
+    {
+      encoding: "utf8",
+    }
+  );
   var options = {
     delimiter: ";",
     wrap: false,
@@ -259,7 +265,8 @@ export function convertJsonToCsv() {
   */
 
   // Write CSV data to file
-  fs.writeFile("output.csv", csvData, "utf-8", (err) => {
+  // "./output/products.csv"
+  fs.writeFile(outputPath, csvData, "utf-8", (err) => {
     if (err) {
       console.error(err);
       return;
@@ -267,3 +274,19 @@ export function convertJsonToCsv() {
     console.log("Conversion successful. CSV file created.");
   });
 }
+
+export function convertRawToSearchingData(
+  rawProduct: RawProduct[]
+) {
+  return rawProduct.map((product) => {
+    return {
+      id: product.handler,
+      title: product.title,
+      category: product.category,
+      short_description: product.shortDescription,
+      description: product.description,
+      variant: product.variant?.title,
+    }
+  })
+}
+

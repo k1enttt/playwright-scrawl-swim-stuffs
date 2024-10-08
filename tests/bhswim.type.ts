@@ -2,6 +2,7 @@ export type RawProduct = {
   handler: string;
   title: string;
   manufacturer: string | null;
+  category: string | null;
   status: "published" | "draft";
   quantity: number | null;
   discountable?: boolean;
