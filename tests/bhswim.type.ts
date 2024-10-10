@@ -4,29 +4,20 @@ export type RawProduct = {
   manufacturer: string | null;
   category: string | null;
   status: "published" | "draft";
-  quantity: number | null;
   discountable?: boolean;
   shortDescription: string | null;
   description: string | null;
   thumbnail: string | null;
   images: string[] | null;
   priceVnd: number | null;
-  variant?:
-    | {
-        title: string;
-        inventoryQuantity: number | null;
-        allowBackOrder?: boolean;
-        priceVnd: number | null;
-        options: Record<
-          string,
-          {
-            label: string;
-            value: string;
-          }
-        >;
-        manageInventory?: boolean;
-      }
-    | null;
+  variant?: {
+    title: string;
+    inventoryQuantity: number | null;
+    allowBackOrder?: boolean;
+    priceVnd: number | null;
+    options: Record<string, string>;
+    manageInventory?: boolean;
+  } | null;
 };
 
 export type MedusaProduct = {
@@ -86,4 +77,3 @@ export type MedusaProduct = {
   "Image 9 Url": string;
   "Image 10 Url": string;
 };
-

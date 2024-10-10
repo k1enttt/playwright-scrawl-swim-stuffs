@@ -1,7 +1,8 @@
 import csvjson from "csvjson";
 import fs from "fs";
-import path from "path";
 import { MedusaProduct, RawProduct } from "./bhswim.type";
+import { expect, Page } from "@playwright/test";
+import { randomInt } from "crypto";
 const diacriticsMap: { [key: string]: string } = {
   á: "a",
   à: "a",
@@ -148,6 +149,10 @@ export function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export function getValueFromPrice(price: string) {
+  return parseInt(price.replace(/[^0-9]/g, ""));
+}
+
 export const convertRawToMedusaProduct = (
   rawProduct: RawProduct
 ): MedusaProduct | null => {
@@ -159,7 +164,7 @@ export const convertRawToMedusaProduct = (
     "Product Id": "",
     "Product Handle": rawProduct.handler,
     "Product Title": rawProduct.title,
-    "Product Subtitle": "", // Assuming no subtitle in RawProduct
+    "Product Subtitle": rawProduct.shortDescription || "", // Assuming no subtitle in RawProduct
     "Product Description": rawProduct.description || "",
     "Product Status": rawProduct.status,
     "Product Thumbnail": rawProduct.thumbnail || "",
@@ -198,16 +203,16 @@ export const convertRawToMedusaProduct = (
     "Price USD": "", // Assuming no USD price in RawProduct;
     "Price VND": rawProduct.priceVnd?.toString() || "",
     "Option 1 Name": rawProduct.variant.options
-      ? Object.keys(rawProduct.variant.options)[0]
+      ? Object.keys(rawProduct.variant.options)[0] || ""
       : "",
     "Option 1 Value": rawProduct.variant.options
-      ? Object.values(rawProduct.variant.options)[0]?.label || ""
+      ? Object.values(rawProduct.variant.options)[0] || ""
       : "",
     "Option 2 Name": rawProduct.variant.options
-      ? Object.keys(rawProduct.variant.options)[1]
+      ? Object.keys(rawProduct.variant.options)[1] || ""
       : "",
     "Option 2 Value": rawProduct.variant.options
-      ? Object.values(rawProduct.variant.options)[1]?.label || ""
+      ? Object.values(rawProduct.variant.options)[1] || ""
       : "",
     "Image 1 Url": "",
     "Image 2 Url": "",
@@ -222,7 +227,7 @@ export const convertRawToMedusaProduct = (
   };
 
   for (const image in rawProduct.images) {
-    if (parseInt(image) >= 5) {
+    if (parseInt(image) >= 10) {
       break;
     }
     product[`Image ${parseInt(image) + 1} Url`] = rawProduct.images[image];
@@ -233,12 +238,9 @@ export const convertRawToMedusaProduct = (
 
 export function convertJsonToCsv(inputPath: string, outputPath: string) {
   // "./output/products.json"
-  var data = fs.readFileSync(
-    inputPath,
-    {
-      encoding: "utf8",
-    }
-  );
+  var data = fs.readFileSync(inputPath, {
+    encoding: "utf8",
+  });
   var options = {
     delimiter: ";",
     wrap: false,
@@ -275,9 +277,7 @@ export function convertJsonToCsv(inputPath: string, outputPath: string) {
   });
 }
 
-export function convertRawToSearchingData(
-  rawProduct: RawProduct[]
-) {
+export function convertRawToSearchingData(rawProduct: RawProduct[]) {
   return rawProduct.map((product) => {
     return {
       id: product.handler,
@@ -286,7 +286,26 @@ export function convertRawToSearchingData(
       short_description: product.shortDescription,
       description: product.description,
       variant: product.variant?.title,
-    }
-  })
+    };
+  });
 }
 
+export function exportFiles(data: RawProduct[], isTest?: boolean) {
+  // Xuất dữ liệu để nạp vào MeiliSearch
+  const searchFile = (isTest) ? `./output/search-test.json` : `./output/search.json`;
+  const searchData = convertRawToSearchingData(data);
+  fs.writeFileSync(searchFile, JSON.stringify(searchData));
+
+  console.log("Đã xuất dữ liệu search");
+
+  const convertedData = data.map((product) =>
+    convertRawToMedusaProduct(product)
+  );
+  const medusaFile = (isTest) ? `./output/products-test.json` : `./output/products.json`;
+  fs.writeFileSync(medusaFile, JSON.stringify(convertedData));
+  console.log("Đã xuất dữ liệu sản phẩm ở dạng json");
+
+  const csvFile = (isTest) ? `./output/products-test.csv` : `./output/products.csv`;
+  convertJsonToCsv(medusaFile, csvFile);
+  console.log("Đã xuất dữ liệu sản phẩm ở dạng csv");
+}
