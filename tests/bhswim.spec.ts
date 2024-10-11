@@ -18,18 +18,6 @@ test("crawl", async ({ page }) => {
   let products: RawProduct[] = [];
   const productUrls: { url: string; category: string }[] = [];
 
-  const streamFile = "./output/stream-products.json";
-
-  // Tạo file mới nếu chưa tồn tại, ngược lại ghi đè lên file cũ
-  var logger = fs.createWriteStream(streamFile);
-  logger.write("");
-
-  // Chuyển logger thành mode append
-  logger = fs.createWriteStream(streamFile, { flags: "a" });
-
-  // Open the array
-  logger.write("[\n");
-
   // Mở trang web
   await page.goto("https://bhswim.com/newproducts", {
     waitUntil: "domcontentloaded",
@@ -97,11 +85,9 @@ test("crawl", async ({ page }) => {
     const productUrl = pageUrl + item.url;
     await page.goto(productUrl, { waitUntil: "domcontentloaded" }).then(
       async () =>
-        await getProduct(page, item.category, logger).then(
-          (productVariants) => {
-            products.push(...productVariants);
-          }
-        )
+        await getProduct(page, item.category).then((productVariants) => {
+          products.push(...productVariants);
+        })
     );
     if (countOfProduct !== 0 && countOfProduct % productPerPage === 0) {
       exportFiles(products);
@@ -109,19 +95,11 @@ test("crawl", async ({ page }) => {
   }
   console.log("Crawl sản phẩm xong");
 
-  // Close the array
-  logger.write("]");
-  logger.end();
-
   // Xuất dữ liệu sản phẩm để nạp vào Admin
   exportFiles(products);
 });
 
-async function getProduct(
-  page: Page,
-  category: string,
-  logger: fs.WriteStream
-): Promise<RawProduct[]> {
+async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
   let products: RawProduct[] = [];
 
   // Lấy tên sản phẩm
@@ -256,7 +234,7 @@ async function getProduct(
   const options: Record<
     string,
     {
-      type: "square" | "circle";
+      type: "squareWithLabel" | "squareWithImage" | "circle";
       values: string[];
     }
   > = {};
@@ -274,33 +252,29 @@ async function getProduct(
       .locator("li")
       .all();
     const values: string[] = [];
-    let type: "square" | "circle" = "square";
+    let type: "squareWithLabel" | "squareWithImage" | "circle" =
+      "squareWithLabel";
 
     for (let optionValue of optionValues) {
-      const value = (await optionValue.locator("label").innerText()).trim();
+      let label = (await optionValue.locator("label").innerText()).trim();
 
-      if (value == "") {
-        const style = await optionValue
-          .locator(".attribute-square")
-          .getAttribute("style");
-        const hexCode =
-          style?.match(/#[0-9a-fA-F]{6}/)?.[0] ||
-          style?.match(/#[0-9a-fA-F]{3}/)?.[0] ||
-          "";
-
-        const label =
+      // Trường hợp option màu sắc
+      if (label == "") {
+        type = "squareWithLabel";
+        label =
           (await optionValue.locator("span").first().getAttribute("title")) ||
           "";
-        values.push(label);
-        if (type != "square") {
-          type = "square";
+
+        // Trường hợp option màu sắc có tên ở thẻ tooltip
+        // Option này có hình hiện lên khi trỏ vào
+        if (label == "") {
+          type = "squareWithImage";
+          label = await optionValue.locator(".tooltip-header").innerText();
         }
+        values.push(label);
       } else {
-        const label = value;
+        type = "circle";
         values.push(label);
-        if (type != "circle") {
-          type = "circle";
-        }
       }
     }
 
@@ -315,28 +289,187 @@ async function getProduct(
   const optionKeys = Object.keys(options);
   const optionValues = Object.values(options);
 
+  /**
+   * Retrieves the variant details for a given product option.
+   *
+   * @param optionValue - The value of the option to be selected.
+   * @param numberOfOption - The total number of options available.
+   * @param optionIndex - The index of the option in the list of options, this can be leave empty if `numberOfOption = 1` .
+   * @param valueIndex - The index of value of the first option, it's used for square option with image or 'squareWithImage' option type
+   *
+   * @returns A promise that resolves to an object containing the variant details:
+   * - `title`: The title of the variant.
+   * - `inventoryQuantity`: The quantity of the variant available in stock.
+   * - `priceVnd`: The price of the variant in VND.
+   * - `options`: An object representing the selected options.
+   */
+  async function getSingleOptionVariant({
+    optionValue,
+    valueIndex,
+  }: {
+    optionValue: string;
+    valueIndex: number;
+  }) {
+    let title = optionValue;
+    const priceVnd = productPrice ? Number(productPrice) : null;
+    let inventoryQuantity: number | null = null;
+    let options = {
+      [optionKeys[0]]: optionValue,
+    };
+
+    if (optionValues[0].type == "squareWithLabel") {
+      // Option màu sắc có label
+      const childLocator = page.getByTitle(optionValue, {
+        exact: true,
+      });
+      const isDisabledOption = await page
+        .locator("label")
+        .filter({ has: childLocator })
+        .locator("input")
+        .getAttribute("disabled", { timeout: 500 });
+
+      if (isDisabledOption == null) {
+        // Chờ response trả về từ server sau khi click vào option
+        const reponsePromise = page
+          .waitForResponse(
+            (resp) =>
+              resp
+                .url()
+                .includes("/shoppingcart/productdetails_attributechange") &&
+              resp.status() === 200,
+            { timeout: 1000 }
+          )
+          .catch(() => null);
+
+        // Click vào option và chờ response trả về với status 200
+        await page
+          .locator(".product-essential")
+          .getByTitle(optionValue, { exact: true })
+          .locator("span")
+          .click();
+        const response = await reponsePromise;
+
+        // Lấy số lượng sản phẩm nếu có response 200 từ server
+        if (response) {
+          const stock = (
+            await page.locator(".stock").locator(".value").innerText()
+          ).split(" ");
+          inventoryQuantity = Number(stock[0]);
+        }
+      } else {
+        inventoryQuantity = 0;
+        console.log("Option bị disable");
+      }
+    } else if (optionValues[0].type == "squareWithImage") {
+      // Trường hợp option có label và value rỗng
+      // Ví dụ: https://bhswim.com/%C3%A1o-b%C6%A1i-thi-%C4%91%E1%BA%A5u-n%E1%BB%AF-tyr-womens-avictor-20-exolon-closed-back-swimsuit
+
+      title = `Mặc định ${valueIndex + 1}`;
+      options = {};
+      options["Mặc định"] = title;
+
+      // Kiểm tra option có disabled hay không
+      const inputLocator = page
+        .locator(".attributes")
+        .first()
+        .locator("li")
+        .filter({ hasText: optionValue })
+        .getByRole("radio");
+      const isDisabledOption = await inputLocator.getAttribute("disabled", {
+        timeout: 500,
+      });
+
+      // Click vào option nếu option không bị disable
+      if (isDisabledOption == null) {
+        // Chờ response trả về từ server sau khi click vào option
+        const reponsePromise = page
+          .waitForResponse(
+            (resp) =>
+              resp
+                .url()
+                .includes("/shoppingcart/productdetails_attributechange") &&
+              resp.status() === 200,
+            { timeout: 1000 }
+          )
+          .catch(() => null);
+
+        // Click vào option và chờ response trả về với status 200
+        const buttonLocator = page
+          .locator(".attributes")
+          .first()
+          .locator("li")
+          .filter({ hasText: optionValue })
+          .locator("span")
+          .last();
+        await buttonLocator.click();
+        const response = await reponsePromise;
+
+        // Lấy số lượng sản phẩm nếu có response 200 từ server
+        if (response) {
+          const stock = (
+            await page.locator(".stock").locator(".value").innerText()
+          ).split(" ");
+          inventoryQuantity = Number(stock[0]);
+        }
+      } else {
+        inventoryQuantity = 0;
+        console.log("Option bị disable");
+      }
+    } else {
+      //** Trường hợp option có dạng tròn */
+      await expect(page.getByText(optionValue, { exact: true }))
+        .toBeEnabled()
+        .then(async () => {
+          // Chờ response trả về từ server sau khi click vào option
+          const reponsePromise = page
+            .waitForResponse(
+              (resp) =>
+                resp
+                  .url()
+                  .includes("/shoppingcart/productdetails_attributechange") &&
+                resp.status() === 200,
+              { timeout: 1000 }
+            )
+            .catch(() => null);
+
+          // Click vào option và chờ response trả về với status 200
+          await page.getByText(optionValue, { exact: true }).click();
+          const response = await reponsePromise;
+
+          // Lấy số lượng sản phẩm nếu có response 200 từ server
+          if (response) {
+            const stock = (
+              await page.locator(".stock").locator(".value").innerText()
+            ).split(" ");
+            inventoryQuantity = Number(stock[0]);
+          }
+        })
+        .catch(() => {
+          inventoryQuantity = 0;
+          console.log("Không click được option", title);
+        });
+    }
+    return {
+      title,
+      inventoryQuantity,
+      priceVnd,
+      options,
+    };
+  }
+
+  async function getCoupleOptionVariant({
+    optionValue1,
+    optionValue2,
+    valueIndex,
+  }: {
+    optionValue1: string;
+    optionValue2: string;
+    valueIndex: number;
+  }) {
+    
+  }
+
   if (optionKeys.length === 0) {
-    logger.write(`{
-      "handler": "${handler}",
-      "title": "${productTitle}",
-      "priceVnd": ${productPrice ? productPrice : '""'},
-      "category": "${category}",
-      "manufacturer": ${manufacturer ? `"${manufacturer}"` : '""'},
-      "discountable": true,
-      "shortDescription": ${shortDescription ? `"${shortDescription}"` : '""'},
-      "description": ${description ? `"${description}"` : '""'},
-      "thumbnail": "${imageSrcList[0]}",
-      "images": ${JSON.stringify(imageSrcList)},
-      "variant": {
-        "title": ${productTitle ? `"${productTitle}"` : '""'},
-        "inventoryQuantity": ${quantity ? quantity : '""'},
-        "priceVnd": ${productPrice ? productPrice : '""'},
-        "options": {},
-        "manageInventory": true,
-        "allowBackOrder": false
-      },
-      "status": "published"
-    },\n`);
     products.push({
       handler,
       title: productTitle || "",
@@ -358,134 +491,11 @@ async function getProduct(
     });
   } else if (optionKeys.length === 1) {
     for (let i = 0; i < optionValues[0].values.length; i++) {
-      let title = optionValues[0].values[i];
-      const priceVnd = productPrice ? Number(productPrice) : null;
-      let options = {
-        [optionKeys[0]]: optionValues[0].values[i],
-      };
-      let inventoryQuantity: number | null = null;
+      const variant = await getSingleOptionVariant({
+        optionValue: optionValues[0].values[i],
+        valueIndex: i,
+      });
 
-      if (optionValues[0].type == "square") {
-        const isValidLocator = !!optionValues[0].values[i];
-
-        // Trường hợp option có label và value rỗng
-        // Ví dụ: https://bhswim.com/%C3%A1o-b%C6%A1i-thi-%C4%91%E1%BA%A5u-n%E1%BB%AF-tyr-womens-avictor-20-exolon-closed-back-swimsuit
-        if (!isValidLocator) {
-          title = `Mặc định ${i + 1}`;
-          options = {};
-          options["Mặc định"] = title;
-          await expect(page.locator(".stock").locator(".value"))
-            .toHaveCount(1, { timeout: 1000 })
-            .then(async () => {
-              await expect(page.locator(".stock").locator(".value"))
-                .toHaveText(/^[0-9].*/, { timeout: 1000 })
-                .then(async () => {
-                  const stock = (
-                    await page.locator(".stock").locator(".value").innerText()
-                  ).split(" ");
-                  inventoryQuantity = Number(stock[0]);
-                })
-                .catch(() => {
-                  inventoryQuantity = 0;
-                  console.log("Không tìm được số lượng của", title);
-                });
-            })
-            .catch(() => {
-              console.log("Không tồn tại số lượng của", title);
-            });
-        } else {
-          const childLocator = page.getByTitle(optionValues[0].values[i], {
-            exact: true,
-          });
-          const isDisabledOption = await page
-            .locator("label")
-            .filter({ has: childLocator })
-            .locator("input")
-            .getAttribute("disabled");
-
-          if (isDisabledOption == null) {
-            await page
-              .locator(".product-essential")
-              .getByTitle(optionValues[0].values[i], { exact: true })
-              .locator("span")
-              .click();
-            await page.waitForTimeout(500);
-            await expect(page.locator(".stock").locator(".value"))
-              .toHaveCount(1, { timeout: 1000 })
-              .then(async () => {
-                await expect(page.locator(".stock").locator(".value"))
-                  .toHaveText(/^[0-9].*/, { timeout: 1000 })
-                  .then(async () => {
-                    const stock = (
-                      await page.locator(".stock").locator(".value").innerText()
-                    ).split(" ");
-                    inventoryQuantity = Number(stock[0]);
-                  })
-                  .catch(() => {
-                    inventoryQuantity = 0;
-                    console.log("Không tìm được số lượng của", title);
-                  });
-              })
-              .catch(() => {
-                console.log("Không tồn tại số lượng của", title);
-              });
-          }
-        }
-      } else {
-        await expect(page.getByText(optionValues[0].values[i], { exact: true }))
-          .toBeEnabled()
-          .then(async () => {
-            await page
-              .getByText(optionValues[0].values[i], { exact: true })
-              .click();
-            await expect(page.locator(".stock").locator(".value"))
-              .toHaveCount(1, { timeout: 1000 })
-              .then(async () => {
-                await sleep(500);
-                await expect(page.locator(".stock").locator(".value"))
-                  .toHaveText(/^[0-9].*/, { timeout: 1000 })
-                  .then(async () => {
-                    const stock = (
-                      await page.locator(".stock").locator(".value").innerText()
-                    ).split(" ");
-                    inventoryQuantity = Number(stock[0]);
-                  })
-                  .catch(() => {
-                    console.log("Không tìm được số lượng của", title);
-                  });
-              })
-              .catch(() => {
-                console.log("Không tồn tại số lượng của", title);
-              });
-          })
-          .catch(() => {
-            console.log("Không click được option", title);
-          });
-      }
-
-      logger.write(`{
-        "handler": "${handler}",
-        "title": "${productTitle}",
-        "priceVnd": ${productPrice ? productPrice : '""'},
-        "category": "${category}",
-        "manufacturer": ${manufacturer ? `"${manufacturer}"` : '""'},
-        "discountable": true,
-        "shortDescription": ${
-          shortDescription ? `"${shortDescription}"` : '""'
-        },
-        "description": ${description ? `"${description.toString()}"` : '""'},
-        "thumbnail": "${imageSrcList[0]}",
-        "images": ${JSON.stringify(imageSrcList)},
-        "variant": {
-          "title": "${title}",
-          "inventoryQuantity": ${inventoryQuantity ? inventoryQuantity : '""'},
-          "priceVnd": ${priceVnd ? priceVnd : '""'},
-          "options": ${JSON.stringify(options)},
-          "allowBackOrder": false,
-          "manageInventory": true
-        },
-        "status": "published"
-      },\n`);
       products.push({
         handler,
         title: productTitle || "",
@@ -496,12 +506,7 @@ async function getProduct(
         description,
         thumbnail: imageSrcList[0],
         images: imageSrcList,
-        variant: {
-          title,
-          inventoryQuantity,
-          priceVnd,
-          options,
-        },
+        variant: variant,
         status: "published",
       });
     }
@@ -519,63 +524,127 @@ async function getProduct(
         let inventoryQuantity: number = 0;
 
         /**
+         * Lấy số lượng sản phẩm
+         * @returns Promise<void>
+         */
+        const getStock = async () => {
+          const stock = (
+            await page.locator(".stock").locator(".value").innerText()
+          ).split(" ");
+          inventoryQuantity = Number(stock[0]);
+        };
+
+        /**
          * Sự kiện click vào option có hình vuông, đa số các option có hình vuông là option màu sắc
          * @param index number
          */
         const clickSquareOption = async (index: number) => {
-          const isValidLocator = !!optionValues[index].values[i];
+          // Trường hợp option màu không có label, thì label = "id=...""
+          const isLabelHaveId = optionValues[index].values[i].match(/id=/);
 
           // Sản phẩm có label rỗng ""
-          if (!isValidLocator) {
+          if (isLabelHaveId) {
             title = `Mặc định ${i + 1} / ${optionValues[1].values[j]}`;
             options = {};
             options["Mặc định"] = `Mặc định ${i + 1}`;
             options[optionKeys[1]] = optionValues[1].values[j];
-            await expect(page.locator(".stock").locator(".value"))
-            .toHaveCount(1, { timeout: 1000 })
-            .then(async () => {
-              await expect(page.locator(".stock").locator(".value"))
-                .toHaveText(/^[0-9].*/, { timeout: 1000 })
-                .then(async () => {
-                  const stock = (
-                    await page.locator(".stock").locator(".value").innerText()
-                  ).split(" ");
-                  inventoryQuantity = Number(stock[0]);
-                })
-                .catch(() => {
-                  inventoryQuantity = 0;
-                  console.log("Không tìm được số lượng của", title);
-                });
-            })
-            .catch(() => {
-              console.log("Không tồn tại số lượng của", title);
-            });
-            return true;
-          } else {
-            const childLocator = page.getByTitle(optionValues[index].values[i], {
-              exact: true,
-            });
+
+            // Kiểm tra option có disabled hay không
+            const childLocator = page.getByTitle(
+              optionValues[index].values[i],
+              {
+                exact: true,
+              }
+            );
+            /** Trả về giá trị `""` khi nút bị disabled, ngược lại trả về `null` thì nút có thể click được */
             const isDisabledOption = await page
               .locator("label")
               .filter({ has: childLocator })
               .first()
               .locator("input")
-              .getAttribute("disabled");
+              .getAttribute("disabled", { timeout: 500 });
 
-            // Sản phẩm có option bị disable, isDisabledOption = null nếu option không bị disable,
-            // ngược lại isDisabledOption = undefined
+            // Click vào option nếu option không bị disable
             if (isDisabledOption == null) {
+              // Chờ response trả về từ server sau khi click vào option
+              const reponsePromise = page
+                .waitForResponse(
+                  (resp) =>
+                    resp
+                      .url()
+                      .includes(
+                        "/shoppingcart/productdetails_attributechange"
+                      ) && resp.status() === 200,
+                  { timeout: 1000 }
+                )
+                .catch(() => null);
+
+              // Click vào option và chờ response trả về với status 200
+              await page
+                .locator(`#${optionValues[index].values[i]} span`)
+                .nth(1)
+                .click();
+              const response = await reponsePromise;
+
+              // Lấy số lượng sản phẩm nếu có response 200 từ server
+              if (index == 1 && response) {
+                await getStock();
+              }
+            } else {
+              // Option bị disable
+              return false;
+            }
+
+            return true;
+          } else {
+            const childLocator = page.getByTitle(
+              optionValues[index].values[i],
+              {
+                exact: true,
+              }
+            );
+            /**
+             * Trả về giá trị `""` khi nút bị disabled, ngược lại trả về `null` thì nút có thể click được
+             */
+            const isDisabledOption = await page
+              .locator("label")
+              .filter({ has: childLocator })
+              .first()
+              .locator("input")
+              .getAttribute("disabled", { timeout: 500 });
+
+            if (isDisabledOption == null) {
+              // Chờ response trả về từ server sau khi click option
+              const responsePromise = page
+                .waitForResponse(
+                  (resp) =>
+                    resp
+                      .url()
+                      .includes(
+                        "/shoppingcart/productdetails_attributechange"
+                      ) && resp.status() === 200,
+                  { timeout: 1000 }
+                )
+                .catch(() => null);
+
+              // Click vào option và đợi response 200 trả về
               await page
                 .locator(".product-essential")
                 .getByTitle(optionValues[index].values[i], { exact: true })
                 .locator("span")
                 .click();
-              return true;
+              const response = await responsePromise;
+
+              // Lấy số lượng
+              if (index == 1 && response) {
+                await getStock();
+              }
             } else {
               inventoryQuantity = 0;
               console.log("Option bị disable");
               return false;
             }
+            return true;
           }
         };
 
@@ -584,168 +653,169 @@ async function getProduct(
          * @param index number
          */
         const clickCircleOption = async (index: number) => {
-          await expect(
+          const isEnabled = await expect(
             page.getByText(optionValues[index].values[j], { exact: true })
           )
-            .toBeEnabled()
-            .then(async () => {
-              await page
-                .getByText(optionValues[index].values[j], { exact: true })
-                .click();
-            })
-            .catch(() => {
-              console.log("Không click được option", title);
-            });
+            .toBeEnabled({ timeout: 500 })
+            .then(() => true)
+            .catch(() => false);
+
+          if (isEnabled) {
+            // Đợi response trả về sau khi click vào option
+            const responsePromise = page
+              .waitForResponse(
+                (resp) =>
+                  resp
+                    .url()
+                    .includes("/shoppingcart/productdetails_attributechange") &&
+                  resp.status() === 200,
+                { timeout: 1000 }
+              )
+              .catch(() => null);
+
+            // Click vào option
+            await page
+              .getByText(optionValues[index].values[j], { exact: true })
+              .click();
+            const response = await responsePromise;
+
+            // Lấy số lượng sản phẩm
+            if (index == 1 && response) {
+              await getStock();
+            }
+          } else {
+            inventoryQuantity = 0;
+            return false;
+          }
+          return true;
         };
 
-        if (optionValues[0].type == "square") {
-          const isValidLocator = !!optionValues[0].values[i];
+        if (optionValues[0].type == "squareWithLabel") {
+          // const isValidLocator = !!optionValues[0].values[i];
 
-          if (!isValidLocator) {
-            title = `Mặc định ${i + 1} / ${optionValues[1].values[j]}`;
-            options = {};
-            options["Mặc định"] = `Mặc định ${i + 1}`;
-            options[optionKeys[1]] = optionValues[1].values[j];
-          } else {
-            const childLocator = page.getByTitle(optionValues[0].values[i], {
-              exact: true,
-            });
-            const isDisabledOption = await page
-              .locator("label")
-              .filter({ has: childLocator })
-              .first()
-              .locator("input")
-              .getAttribute("disabled");
+          // if (!isValidLocator) {
+          //   title = `Mặc định ${i + 1} / ${optionValues[1].values[j]}`;
+          //   options = {};
+          //   options["Mặc định"] = `Mặc định ${i + 1}`;
+          //   options[optionKeys[1]] = optionValues[1].values[j];
+          // } else {
+          //   const childLocator = page.getByTitle(optionValues[0].values[i], {
+          //     exact: true,
+          //   });
+          //   const isDisabledOption = await page
+          //     .locator("label")
+          //     .filter({ has: childLocator })
+          //     .first()
+          //     .locator("input")
+          //     .getAttribute("disabled");
 
-            if (isDisabledOption == null) {
-              await page
-                .locator(".product-essential")
-                .getByTitle(optionValues[0].values[i], { exact: true })
-                .locator("span")
-                .click();
+          //   if (isDisabledOption == null) {
+          //     await page
+          //       .locator(".product-essential")
+          //       .getByTitle(optionValues[0].values[i], { exact: true })
+          //       .locator("span")
+          //       .click();
 
-              await expect(
-                page.getByText(optionValues[1].values[j], { exact: true })
-              )
-                .toBeEnabled()
-                .then(async () => {
-                  await page
-                    .getByText(optionValues[1].values[j], { exact: true })
-                    .click();
-                  await page.waitForTimeout(500);
-                  await expect(page.locator(".stock").locator(".value"))
-                    .toHaveCount(1, { timeout: 1000 })
-                    .then(async () => {
-                      await expect(page.locator(".stock").locator(".value"))
-                        .toHaveText(/^[0-9].*/, { timeout: 1000 })
-                        .then(async () => {
-                          const stock = (
-                            await page
-                              .locator(".stock")
-                              .locator(".value")
-                              .innerText()
-                          ).split(" ");
-                          inventoryQuantity = Number(stock[0]);
-                        })
-                        .catch(() => {
-                          inventoryQuantity = 0;
-                          console.log("Không tìm được số lượng của", title);
-                        });
-                    })
-                    .catch(() => {
-                      console.log(
-                        "Không lấy được số lượng sản phẩm của",
-                        title
-                      );
-                    });
-                })
-                .catch(() => {
-                  console.log("Không click được option", title);
-                });
-            } else {
-              inventoryQuantity = 0;
-              console.log("Option bị disable");
-            }
-          }
+          //     await expect(
+          //       page.getByText(optionValues[1].values[j], { exact: true })
+          //     )
+          //       .toBeEnabled()
+          //       .then(async () => {
+          //         await page
+          //           .getByText(optionValues[1].values[j], { exact: true })
+          //           .click();
+          //         await page.waitForTimeout(500);
+          //         await expect(page.locator(".stock").locator(".value"))
+          //           .toHaveCount(1, { timeout: 1000 })
+          //           .then(async () => {
+          //             await expect(page.locator(".stock").locator(".value"))
+          //               .toHaveText(/^[0-9].*/, { timeout: 1000 })
+          //               .then(async () => {
+          //                 const stock = (
+          //                   await page
+          //                     .locator(".stock")
+          //                     .locator(".value")
+          //                     .innerText()
+          //                 ).split(" ");
+          //                 inventoryQuantity = Number(stock[0]);
+          //               })
+          //               .catch(() => {
+          //                 inventoryQuantity = 0;
+          //                 console.log("Không tìm được số lượng của", title);
+          //               });
+          //           })
+          //           .catch(() => {
+          //             console.log(
+          //               "Không lấy được số lượng sản phẩm của",
+          //               title
+          //             );
+          //           });
+          //       })
+          //       .catch(() => {
+          //         console.log("Không click được option", title);
+          //       });
+          //   } else {
+          //     inventoryQuantity = 0;
+          //     console.log("Option bị disable");
+          //   }
+          // }
+          await clickSquareOption(0);
         } else {
-          await expect(
-            page.getByText(optionValues[1].values[j], { exact: true })
-          )
-            .toBeEnabled()
-            .then(async () => {
-              await page
-                .getByText(optionValues[1].values[j], { exact: true })
-                .click();
-            })
-            .catch(() => {
-              console.log("Không click được option", title);
-            });
+          // await expect(
+          //   page.getByText(optionValues[1].values[j], { exact: true })
+          // )
+          //   .toBeEnabled()
+          //   .then(async () => {
+          //     await page
+          //       .getByText(optionValues[1].values[j], { exact: true })
+          //       .click();
+          //   })
+          //   .catch(() => {
+          //     console.log("Không click được option", title);
+          //   });
+          await clickCircleOption(0);
         }
 
-        if (optionValues[1].type == "square") {
+        if (optionValues[1].type == "squareWithLabel") {
+          await clickSquareOption(1);
         } else {
-          await expect(
-            page.getByText(optionValues[1].values[j], { exact: true })
-          )
-            .toBeEnabled()
-            .then(async () => {
-              await page
-                .getByText(optionValues[1].values[j], { exact: true })
-                .click();
-              await page.waitForTimeout(500);
-              await expect(page.locator(".stock").locator(".value"))
-                .toHaveCount(1, { timeout: 1000 })
-                .then(async () => {
-                  await expect(page.locator(".stock").locator(".value"))
-                    .toHaveText(/^[0-9].*/, { timeout: 1000 })
-                    .then(async () => {
-                      const stock = (
-                        await page
-                          .locator(".stock")
-                          .locator(".value")
-                          .innerText()
-                      ).split(" ");
-                      inventoryQuantity = Number(stock[0]);
-                    })
-                    .catch(() => {
-                      inventoryQuantity = 0;
-                      console.log("Không tìm được số lượng của", title);
-                    });
-                })
-                .catch(() => {
-                  console.log("Không lấy được số lượng sản phẩm của", title);
-                });
-            })
-            .catch(() => {
-              console.log("Không click được option", title);
-            });
+          // await expect(
+          //   page.getByText(optionValues[1].values[j], { exact: true })
+          // )
+          //   .toBeEnabled()
+          //   .then(async () => {
+          //     await page
+          //       .getByText(optionValues[1].values[j], { exact: true })
+          //       .click();
+          //     await page.waitForTimeout(500);
+          //     await expect(page.locator(".stock").locator(".value"))
+          //       .toHaveCount(1, { timeout: 1000 })
+          //       .then(async () => {
+          //         await expect(page.locator(".stock").locator(".value"))
+          //           .toHaveText(/^[0-9].*/, { timeout: 1000 })
+          //           .then(async () => {
+          //             const stock = (
+          //               await page
+          //                 .locator(".stock")
+          //                 .locator(".value")
+          //                 .innerText()
+          //             ).split(" ");
+          //             inventoryQuantity = Number(stock[0]);
+          //           })
+          //           .catch(() => {
+          //             inventoryQuantity = 0;
+          //             console.log("Không tìm được số lượng của", title);
+          //           });
+          //       })
+          //       .catch(() => {
+          //         console.log("Không lấy được số lượng sản phẩm của", title);
+          //       });
+          //   })
+          //   .catch(() => {
+          //     console.log("Không click được option", title);
+          //   });
+          await clickCircleOption(1);
         }
-
-        logger.write(`{
-          "handler": "${handler}",
-          "title": "${productTitle}",
-          "priceVnd": ${productPrice ? productPrice : '""'},
-          "category": "${category}",
-          "manufacturer": ${manufacturer ? `"${manufacturer}"` : '""'},
-          "discountable": true,
-          "shortDescription": ${
-            shortDescription ? `"${shortDescription}"` : '""'
-          },
-          "description": ${description ? `"${description}"` : '""'},
-          "thumbnail": "${imageSrcList[0]}",
-          "images": ${JSON.stringify(imageSrcList)},
-          "variant": {
-            "title": "${title}",
-            "inventoryQuantity": ${
-              inventoryQuantity ? inventoryQuantity : '""'
-            },
-            "priceVnd": ${priceVnd ? priceVnd : '""'},
-            "options": ${JSON.stringify(options)},
-            "allowBackOrder": ${allowBackOrder},
-            "manageInventory": ${manageInventory}
-          },
-          "status": "published"
-        },\n`);
 
         products.push({
           handler,
@@ -775,55 +845,40 @@ async function getProduct(
 
 test("Bad cases", async ({ page }) => {
   test.setTimeout(10 * 60 * 1000);
-  const streamFile = "./output/stream-products.json";
-  // Tạo file mới nếu chưa tồn tại, ngược lại ghi đè lên file cũ
-  var logger = fs.createWriteStream(streamFile);
-  logger.write("");
-
-  // Chuyển logger thành mode append
-  logger = fs.createWriteStream(streamFile, { flags: "a" });
-
-  // Open the array
-  logger.write("[\n");
-
   const productUrl = {
     "Áo bơi TYR American Dream Diamondfit Swimsuit":
       "https://bhswim.com/%C3%A1o-b%C6%A1i-tyr-american-dream-diamondfit-swimsuit",
     "Quần bơi thi đấu TYR Men’s Venzo Camo High-Waist Jammer Swimsuit Nam":
       "https://bhswim.com/quan-boi-tyr-mens-venzo-camo-high-waist-jammer-swimsuit-nam",
+    // Số lượng của variant không đúng
     "Kính Bơi Trẻ Em YINGFA J390AF Kid's Swim Goggles":
       "https://bhswim.com/k%C3%ADnh-b%C6%A1i-tr%E1%BA%BB-em-yingfa-j390af-kids-swim-goggles",
     "Cục ngậm TYR Ultralite Snorkel 2.0 Mouthpiece Replacement":
       "https://bhswim.com/k%C3%ADnh-b%C6%A1i-tr%C3%A1ng-g%C6%B0%C6%A1ng-tyr-black-ops-140-ev-adult-2",
-    // sản phẩm có option kích trước đặt trước option màu sắc
+    // Sản phẩm có option kích trước đặt trước option màu sắc
     "Quần bơi lửng Nam TYR Sonoma Jammer":
       "https://bhswim.com/qu%E1%BA%A7n-b%C6%A1i-l%E1%BB%ADng-nam-tyr-sonoma-jammer",
-    // số lượng của variant không đúng
+    // Số lượng của variant không đúng
     "Quần bơi tam giác 2 mặt Nam TYR Diablos Reversible Racer":
       "https://bhswim.com/qu%E1%BA%A7n-b%C6%A1i-tam-gi%C3%A1c-2-m%E1%BA%B7t-nam-tyr-diablos-reversible-racer",
-    //số lượng của variant không đúng
+    // Số lượng của variant không đúng
     "Quần bơi tam giác 2 mặt Nam TYR Coraline Reversible Racer":
       "https://bhswim.com/qu%E1%BA%A7n-b%C6%A1i-tam-gi%C3%A1c-2-m%E1%BA%B7t-nam-tyr-coraline-reversible-racer",
   };
   let products: RawProduct[] = [];
   await page
     .goto(
-      productUrl["Quần bơi tam giác 2 mặt Nam TYR Diablos Reversible Racer"],
+      productUrl["Cục ngậm TYR Ultralite Snorkel 2.0 Mouthpiece Replacement"],
       {
         waitUntil: "domcontentloaded",
       }
     )
     .then(
       async () =>
-        await getProduct(page, "Sản phẩm mới", logger).then(
-          (productVariants) => {
-            products.push(...productVariants);
-          }
-        )
+        await getProduct(page, "Sản phẩm mới").then((productVariants) => {
+          products.push(...productVariants);
+        })
     );
-
-  // Close the array
-  logger.write("]");
 
   exportFiles(products, true);
 });
