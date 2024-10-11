@@ -1,7 +1,7 @@
 import { expect, Page, test } from "@playwright/test";
 import { RawProduct } from "./bhswim.type";
 import fs from "fs";
-import { exportFiles, sleep } from "./utils";
+import { exportCrawlFiles, exportCrawlInfo, sleep } from "./utils";
 import { randomInt } from "crypto";
 
 test("crawl", async ({ page }) => {
@@ -89,14 +89,19 @@ test("crawl", async ({ page }) => {
           products.push(...productVariants);
         })
     );
+    exportCrawlInfo({
+      currentProductUrl: productUrl,
+      currentPage: countOfProduct / productPerPage,
+      currentCategory: item.category,
+    });
     if (countOfProduct !== 0 && countOfProduct % productPerPage === 0) {
-      exportFiles(products);
+      exportCrawlFiles(products);
     }
   }
   console.log("Crawl sản phẩm xong");
 
-  // Xuất dữ liệu sản phẩm để nạp vào Admin
-  exportFiles(products);
+  // Xuất dữ liệu sản phẩm
+  exportCrawlFiles(products);
 });
 
 async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
@@ -203,6 +208,9 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
         .locator("div")
         .first()
         .textContent();
+      if (description) {
+        description = description.replace(/"/g, "\"").trim();
+      }
   } catch (error) {
     description = null;
   }
@@ -390,12 +398,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
         const response = await reponsePromise;
 
         // Lấy số lượng sản phẩm nếu có response 200 từ server
-        if (response) {
-          const stock = (
-            await page.locator(".stock").locator(".value").innerText()
-          ).split(" ");
-          inventoryQuantity = Number(stock[0]);
-        }
+        inventoryQuantity = response ? await getStock() : 0;
       } else {
         inventoryQuantity = 0;
         console.log("Option bị disable");
@@ -445,12 +448,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
         const response = await reponsePromise;
 
         // Lấy số lượng sản phẩm nếu có response 200 từ server
-        if (response) {
-          const stock = (
-            await page.locator(".stock").locator(".value").innerText()
-          ).split(" ");
-          inventoryQuantity = Number(stock[0]);
-        }
+        inventoryQuantity = response ? await getStock() : 0;
       } else {
         inventoryQuantity = 0;
         console.log("Option bị disable");
@@ -477,12 +475,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
           const response = await reponsePromise;
 
           // Lấy số lượng sản phẩm nếu có response 200 từ server
-          if (response) {
-            const stock = (
-              await page.locator(".stock").locator(".value").innerText()
-            ).split(" ");
-            inventoryQuantity = Number(stock[0]);
-          }
+          inventoryQuantity = response ? await getStock() : 0;
         })
         .catch(() => {
           inventoryQuantity = 0;
@@ -517,6 +510,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
           .locator("label")
           .filter({ has: childLocator })
           .locator("input")
+          .first()
           .getAttribute("disabled", { timeout: 5000 })) == "";
 
       if (isDisabledOption) {
@@ -585,8 +579,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
       const inputLocator = page
         .locator(".attributes")
         .locator("li")
-        .filter({ hasText: value })
-        .getByRole("radio");
+        .getByLabel(value, { exact: true });
       const isDisabledOption =
         (await inputLocator.getAttribute("disabled", { timeout: 5000 })) == "";
 
@@ -773,9 +766,12 @@ test("Bad cases", async ({ page }) => {
   };
   let products: RawProduct[] = [];
   await page
-    .goto(productUrl["Quần bơi tam giác 2 mặt Nam TYR Coraline Reversible Racer"], {
-      waitUntil: "domcontentloaded",
-    })
+    .goto(
+      productUrl["Quần bơi tam giác 2 mặt Nam TYR Coraline Reversible Racer"],
+      {
+        waitUntil: "domcontentloaded",
+      }
+    )
     .then(
       async () =>
         await getProduct(page, "Sản phẩm mới").then((productVariants) => {
@@ -783,5 +779,5 @@ test("Bad cases", async ({ page }) => {
         })
     );
 
-  exportFiles(products, true);
+  exportCrawlFiles(products, true);
 });

@@ -290,7 +290,7 @@ export function convertRawToSearchingData(rawProduct: RawProduct[]) {
   });
 }
 
-export function exportFiles(data: RawProduct[], isTest?: boolean) {
+export function exportCrawlFiles(data: RawProduct[], isTest?: boolean) {
   // Xuất dữ liệu để nạp vào MeiliSearch
   const searchFile = (isTest) ? `./output/search-test.json` : `./output/search.json`;
   const searchData = convertRawToSearchingData(data);
@@ -308,4 +308,12 @@ export function exportFiles(data: RawProduct[], isTest?: boolean) {
   const csvFile = (isTest) ? `./output/products-test.csv` : `./output/products.csv`;
   convertJsonToCsv(medusaFile, csvFile);
   console.log("Đã xuất dữ liệu sản phẩm ở dạng csv");
+}
+
+export function exportCrawlInfo({currentProductUrl, currentPage, currentCategory}: {currentProductUrl: string, currentPage: number, currentCategory: string}) {
+  const crawlInfoFile = "./output/crawl-info.json";
+
+  fs.writeFileSync(crawlInfoFile, JSON.stringify({currentProductUrl, currentPage, currentCategory}));
+
+  console.log("Đã xuất thông tin crawl");
 }
