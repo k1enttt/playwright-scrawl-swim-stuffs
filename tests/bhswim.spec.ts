@@ -301,7 +301,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
       page.locator(".stock").locator(".value")
     )
       .toHaveCount(1, {
-        timeout: 1000,
+        timeout: 5000,
       })
       .then(() => true)
       .catch(() => false);
@@ -309,7 +309,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
     // Kiểm tra số lượng tồn kho có được hiển thị hay không
     if (isVisibleStock) {
       const inStock = await expect(page.locator(".stock").locator(".value"))
-        .toHaveText(/^[0-9].*/, { timeout: 1000 })
+        .toHaveText(/^[0-9].*/, { timeout: 5000 })
         .then(() => true)
         .catch(() => false);
       if (inStock) {
@@ -366,7 +366,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
         .locator("label")
         .filter({ has: childLocator })
         .locator("input")
-        .getAttribute("disabled", { timeout: 500 });
+        .getAttribute("disabled", { timeout: 5000 });
 
       if (isDisabledOption == null) {
         // Chờ response trả về từ server sau khi click vào option
@@ -377,7 +377,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
                 .url()
                 .includes("/shoppingcart/productdetails_attributechange") &&
               resp.status() === 200,
-            { timeout: 5000 }
+            { timeout: 10000 }
           )
           .catch(() => null);
 
@@ -416,7 +416,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
         .filter({ hasText: optionValue })
         .getByRole("radio");
       const isDisabledOption = await inputLocator.getAttribute("disabled", {
-        timeout: 500,
+        timeout: 5000,
       });
 
       // Click vào option nếu option không bị disable
@@ -429,7 +429,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
                 .url()
                 .includes("/shoppingcart/productdetails_attributechange") &&
               resp.status() === 200,
-            { timeout: 5000 }
+            { timeout: 10000 }
           )
           .catch(() => null);
 
@@ -468,7 +468,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
                   .url()
                   .includes("/shoppingcart/productdetails_attributechange") &&
                 resp.status() === 200,
-              { timeout: 5000 }
+              { timeout: 10000 }
             )
             .catch(() => null);
 
@@ -517,7 +517,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
           .locator("label")
           .filter({ has: childLocator })
           .locator("input")
-          .getAttribute("disabled", { timeout: 500 })) == "";
+          .getAttribute("disabled", { timeout: 5000 })) == "";
 
       if (isDisabledOption) {
         return false;
@@ -532,14 +532,14 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
               .url()
               .includes("/shoppingcart/productdetails_attributechange") &&
             resp.status() === 200,
-          { timeout: 5000 }
+          { timeout: 10000 }
         )
         .catch(() => null);
       await page
         .locator(".product-essential")
         .getByTitle(value, { exact: true })
         .locator("span")
-        .click({ timeout: 1000 });
+        .click({ timeout: 5000 });
       const isSuccessClick = !!(await responsePromise);
 
       return isSuccessClick;
@@ -553,7 +553,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
         .getByRole("radio");
       const isDisabledOption =
         (await inputLocator.getAttribute("disabled", {
-          timeout: 500,
+          timeout: 5000,
         })) == "";
 
       if (isDisabledOption) {
@@ -566,7 +566,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
                 .url()
                 .includes("/shoppingcart/productdetails_attributechange") &&
               resp.status() === 200,
-            { timeout: 5000 }
+            { timeout: 10000 }
           )
           .catch(() => null);
         await page
@@ -576,7 +576,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
           .filter({ hasText: value })
           .locator("span")
           .last()
-          .click({ timeout: 1000 });
+          .click({ timeout: 5000 });
         const isSuccessClick = !!(await responsePromise);
 
         return isSuccessClick;
@@ -588,7 +588,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
         .filter({ hasText: value })
         .getByRole("radio");
       const isDisabledOption =
-        (await inputLocator.getAttribute("disabled", { timeout: 1000 })) == "";
+        (await inputLocator.getAttribute("disabled", { timeout: 5000 })) == "";
 
       if (isDisabledOption) {
         return false;
@@ -600,10 +600,10 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
                 .url()
                 .includes("/shoppingcart/productdetails_attributechange") &&
               resp.status() === 200,
-            { timeout: 5000 }
+            { timeout: 10000 }
           )
           .catch(() => null);
-        await page.getByText(value, { exact: true }).click({ timeout: 1000 });
+        await page.getByText(value, { exact: true }).click({ timeout: 5000 });
         const isSuccessClick = !!(await responsePromise);
 
         return isSuccessClick;
@@ -773,7 +773,7 @@ test("Bad cases", async ({ page }) => {
   };
   let products: RawProduct[] = [];
   await page
-    .goto(productUrl["Quần bơi lửng Nam TYR Sonoma Jammer"], {
+    .goto(productUrl["Quần bơi tam giác 2 mặt Nam TYR Coraline Reversible Racer"], {
       waitUntil: "domcontentloaded",
     })
     .then(
