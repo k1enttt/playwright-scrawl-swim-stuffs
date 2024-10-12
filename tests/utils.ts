@@ -3,6 +3,7 @@ import fs from "fs";
 import { MedusaProduct, RawProduct } from "./bhswim.type";
 import { expect, Page } from "@playwright/test";
 import { randomInt } from "crypto";
+import { url } from "inspector";
 const diacriticsMap: { [key: string]: string } = {
   á: "a",
   à: "a",
@@ -145,6 +146,16 @@ export function removeDiacritics(str: string): string {
   });
 }
 
+export function removeOthers(str: string): string {
+  // Remove all the character that are not a-z, A-Z, - and _
+  return str.replace(/[^a-zA-Z0-9_-]/g, "");
+}
+
+export function checkValidId(id: string) {
+  // Valid id must only contain a-z, A-Z, 0-9, - and _
+  return /^[a-zA-Z0-9_-]*$/.test(id);
+}
+
 export function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -224,6 +235,7 @@ export const convertRawToMedusaProduct = (
     "Image 8 Url": "",
     "Image 9 Url": "",
     "Image 10 Url": "",
+    "Sales Channel 1 Name": "Default Sale Channel",
   };
 
   for (const image in rawProduct.images) {
@@ -277,43 +289,70 @@ export function convertJsonToCsv(inputPath: string, outputPath: string) {
   });
 }
 
-export function convertRawToSearchingData(rawProduct: RawProduct[]) {
-  return rawProduct.map((product) => {
+export function convertRawToSearchingData(
+  medusaProducts: (MedusaProduct | null)[]
+) {
+  let count = 0;
+  return medusaProducts.map((product) => {
+    if (!product) {
+      return null;
+    }
     return {
-      id: product.handler,
-      title: product.title,
-      category: product.category,
-      short_description: product.shortDescription,
-      description: product.description,
-      variant: product.variant?.title,
+      id: ++count,
+      handler: product["Product Handle"],
+      title: product["Product Title"],
+      category: product["Product Collection Title"],
+      short_description: product["Product Subtitle"],
+      description: product["Product Description"],
+      variant: product["Variant Title"],
     };
   });
 }
 
 export function exportCrawlFiles(data: RawProduct[], isTest?: boolean) {
-  // Xuất dữ liệu để nạp vào MeiliSearch
-  const searchFile = (isTest) ? `./output/search-test.json` : `./output/search.json`;
-  const searchData = convertRawToSearchingData(data);
-  fs.writeFileSync(searchFile, JSON.stringify(searchData));
-
   console.log("Đã xuất dữ liệu search");
 
   const convertedData = data.map((product) =>
     convertRawToMedusaProduct(product)
   );
-  const medusaFile = (isTest) ? `./output/products-test.json` : `./output/products.json`;
+
+  // Xuất dữ liệu để nạp vào MeiliSearch
+  const searchFile = isTest
+    ? `./output/search-test.json`
+    : `./output/search.json`;
+  const searchData = convertRawToSearchingData(convertedData);
+
+  // Xuất dữ liệu sản phẩm ở dạng json
+  fs.writeFileSync(searchFile, JSON.stringify(searchData));
+  const medusaFile = isTest
+    ? `./output/products-test.json`
+    : `./output/products.json`;
   fs.writeFileSync(medusaFile, JSON.stringify(convertedData));
   console.log("Đã xuất dữ liệu sản phẩm ở dạng json");
 
-  const csvFile = (isTest) ? `./output/products-test.csv` : `./output/products.csv`;
+  // Xuất dữ liệu sản phẩm ở dạng csv
+  const csvFile = isTest
+    ? `./output/products-test.csv`
+    : `./output/products.csv`;
   convertJsonToCsv(medusaFile, csvFile);
   console.log("Đã xuất dữ liệu sản phẩm ở dạng csv");
 }
 
-export function exportCrawlInfo({currentProductUrl, currentPage, currentCategory}: {currentProductUrl: string, currentPage: number, currentCategory: string}) {
+export function exportCrawlInfo({
+  currentProductUrl,
+  currentPage,
+  currentCategory,
+}: {
+  currentProductUrl: string;
+  currentPage: number;
+  currentCategory: string;
+}) {
   const crawlInfoFile = "./output/crawl-info.json";
 
-  fs.writeFileSync(crawlInfoFile, JSON.stringify({currentProductUrl, currentPage, currentCategory}));
+  fs.writeFileSync(
+    crawlInfoFile,
+    JSON.stringify({ currentProductUrl, currentPage, currentCategory })
+  );
 
   console.log("Đã xuất thông tin crawl");
 }

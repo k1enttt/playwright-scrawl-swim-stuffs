@@ -76,4 +76,15 @@ export type MedusaProduct = {
   "Image 8 Url": string;
   "Image 9 Url": string;
   "Image 10 Url": string;
+  "Sales Channel 1 Name": string;
 };
+
+export type SearchIndex = {
+  id: string;
+  handler: string;
+  title: string;
+  category: string;
+  short_description: string;
+  description: string;
+  variant: string;
+}
