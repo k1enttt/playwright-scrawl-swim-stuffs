@@ -34,32 +34,29 @@ test("crawl từ trang 25", async ({ page }) => {
   });
 
   // Lấy href của các category
-  // await page.getByRole("link", { name: "Sản phẩm mới" }).first().click();
-  // TODO: Tạm thời bỏ qua việc lấy danh sách category
-  // await sleep(800);
-  // const categoryLocators = await page
-  //   .locator(".block-category-navigation")
-  //   .locator("a")
-  //   .all();
-  // expect(categoryLocators).toHaveLength(6);
+  async function getCategories() {
+    const categoryLocators = await page
+      .locator(".block-category-navigation")
+      .locator("a")
+      .all();
 
-  // for (const locator of categoryLocators) {
-  //   const url = await locator.getAttribute("href");
-  //   if (url) {
-  //     console.log(url);
-  //     const label = (await locator.innerText()).trim();
-  //     categories.push({ label, url });
-  //   }
-  // }
+    for (const locator of categoryLocators) {
+      const url = await locator
+        .getAttribute("href", { timeout: 5000 })
+        .catch(() => null);
+      if (url) {
+        const label = (await locator.innerText()).trim();
+        categories.push({ label, url });
+      }
+    }
+  }
 
-  // Lấy số lượng trang sản phẩm
   const pageNumber = await page
     .getByRole("link", { name: " Cuối cùng" })
     .getAttribute("data-page");
 
+  // Lấy số lượng trang sản phẩm
   for (let category of categories) {
-    if (category.label != "Sản phẩm mới") break;
-
     // Lấy danh sách sản phẩm trên từng trang
     for (let i = startPage; i <= Number(pageNumber); i++) {
       const url =
