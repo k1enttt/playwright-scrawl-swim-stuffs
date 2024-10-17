@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { exportFiles, sleep } from './utils';
-import { RawProduct } from './bhswim.type';
+import { checkValidId, convertJsonToCsv, convertRawToSearchingData, mergeVariant, removeDiacritics, removeOthers, sleep } from './utils';
+import { MedusaProduct, RawProduct, SearchIndex } from './bhswim.type';
 import fs from "fs";
 
 test('has title', async ({ page }) => {
@@ -416,3 +416,300 @@ test("crawl-multitags", async ({ page }) => {
     }
   }
 })
+
+test("Lăn chuột xuống cuối trang", async ({ page }) => {
+  test.setTimeout(6 * 60 * 60 * 1000);
+  const url = "https://bhswim.com/hoat-dong-nu";
+
+  // Mở trang web
+  await page.goto(url);
+
+  // Lăn chuột xuống cuối trang
+
+  // Scroll to the bottom:
+  let prevHeight = -1;
+  const maxScrolls = 100;
+  let scrollCount = 0;
+
+  while (scrollCount < maxScrolls) {
+    // Execute JavaScript to scroll to the bottom of the page
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    // Wait for new content to load (change this value as needed)
+    for (let i = 0; i < 10; i++) {
+      await page.waitForTimeout(1000);
+      const newHeight = await page.evaluate(() => document.body.scrollHeight);
+      if (newHeight !== prevHeight) {
+        break;
+      }
+    }
+    // Check whether the scroll height changed - means more pages are there
+    const newHeight = await page.evaluate(() => document.body.scrollHeight);
+    if (newHeight === prevHeight) {
+      break;
+    }
+    prevHeight = newHeight;
+    scrollCount++;
+  }
+
+  // Đếm số lượng sản phẩm
+  const productListLocator = await page
+    .locator(".products-wrapper")
+    .locator(".item-box")
+    .all();
+  console.log(`- Số lượng sản phẩm: ${productListLocator.length}`);
+});
+
+test("Lấy danh sách category", async ({ page }) => {
+  test.setTimeout(6 * 60 * 60 * 1000);
+  const categories: { label: string; url: string }[] = [
+    {
+      label: "Sản phẩm mới",
+      url: "/newproducts",
+    },
+  ];
+
+  // Mở trang web
+  await page.goto("https://bhswim.com/newproducts", {
+    waitUntil: "domcontentloaded",
+  });
+
+  // Lấy href của các category
+  async function getCategories() {
+    const categoryLocators = await page
+      .locator(".block-category-navigation")
+      .locator("a")
+      .all();
+
+    for (const locator of categoryLocators) {
+      const url = await locator
+        .getAttribute("href", { timeout: 5000 })
+        .catch(() => null);
+      if (url) {
+        const label = (await locator.innerText()).trim();
+        categories.push({ label, url });
+        console.log(`- ${label}: ${url}`);
+      }
+    }
+  }
+  await getCategories();
+});
+
+test("Lấy danh sách con của category", async ({ page }) => {
+  const label = "DỤNG CỤ BƠI LỘI (130)";
+  const url = "/dung-cu-boi-loi-nam";
+  const baseUrl = "https://bhswim.com";
+
+  // Mở trang web
+  await page.goto(baseUrl + url, {
+    waitUntil: "domcontentloaded",
+  });
+
+  // Lấy href của các category con
+  const subCategoriesLocator = await page
+    .locator(".block-category-navigation")
+    .getByRole("listitem")
+    .filter({ has: page.getByText(label, { exact: true }) })
+    .last()
+    .locator("ul")
+    .first()
+    .locator("li")
+    .all();
+
+  for (const locator of subCategoriesLocator) {
+    const url = await locator
+      .locator("a")
+      .getAttribute("href", { timeout: 5000 })
+      .catch(() => null);
+    if (url) {
+      const label = (await locator.locator("a").innerText()).trim();
+      console.log(`- ${label}: ${url}`);
+    }
+  }
+});
+
+test("Lấy danh sách sản phẩm từ category", async ({ page }) => {
+  const baseUrl = "https://bhswim.com";
+  const url = "/dung-cu-boi-loi-nam";
+  const category = "DỤNG CỤ BƠI LỘI (130)";
+
+  const productListLocator = page
+    .locator(".products-wrapper")
+    .locator(".item-box")
+    .all();
+});
+
+
+/**
+ * Test dùng để gộp hết dữ liệu crawl từ các file trong thư mục output/crawl thành một file duy nhất
+ * và xuất ra thành index documents thành file search.json dùng để tìm kiếm
+ */
+test("Export search indexes", async () => {
+  // Đọc dữ liệu của từng file trong thư mục output/crawl/
+  const files = fs.readdirSync("./output/crawl");
+  let products: MedusaProduct[] = [];
+  for (let file of files) {
+    const rawData = fs.readFileSync(`./output/crawl/${file}`, "utf-8");
+    const data = JSON.parse(rawData);
+    products.push(...data);
+  }
+
+  // Chuyển dữ liệu thành format search index
+  const searchIndexes = convertRawToSearchingData(products);
+
+  // Xuất dữ liệu ra file
+  fs.writeFileSync("./output/search.json", JSON.stringify(searchIndexes));
+});
+
+/**
+ * Test dùng để kiểm tra xem các handle của sản phẩm có hợp lệ không
+ * Handle hợp lệ: chỉ chứa các ký tự a-z, A-Z, 0-9, dấu gạch ngang (-) và daa dấu gạch dưới (_)
+ */
+test("Check valid product handle", async () => {
+  const searchIndexes = fs.readFileSync("./output/products.json", "utf-8");
+  const data = JSON.parse(searchIndexes) as MedusaProduct[];
+  for (let item of data) {
+    const isValidId = checkValidId(item["Product Handle"]);
+    if (!isValidId) {
+      throw new Error(`Invalid id: ${item["Product Handle"]}`);
+    }
+  }
+});
+
+/**
+ * Test dùng để lấy dữ liệu sản phẩm đã crawl và thay đổi dữ liệu thành dạng csv
+ * Các bước thay đổi dữ liệu:
+ * 1. Chỉnh sửa `handle`:
+ *  - Chuyển tất cả chữ cái có dấu thành chữ cái không dấu
+ *  - Loại bỏ các ký tự đặc biệt
+ * 2. Thêm tên sales channel: Default Sale Channel
+ */
+test("Làm sạch handler cho sản phẩm", () => {
+  // Đọc dữ liệu từ các file trong thư mục output/crawl
+  const files = fs.readdirSync("./output/crawl");
+  let products: MedusaProduct[] = [];
+  for (let file of files) {
+    const rawData = fs.readFileSync(`./output/crawl/${file}`, "utf-8");
+    const data = JSON.parse(rawData);
+    products.push(...data);
+  }
+
+  // Làm sạch handler của từng sản phẩm trong dữ liệu
+  const cleanedProducts: MedusaProduct[] = products.map((product) => {
+    return {
+      ...product,
+      "Product Handle": removeOthers(
+        removeDiacritics(product["Product Handle"])
+      ),
+      "Sales Channel 1 Name": "Default Sale Channel",
+    };
+  });
+
+  // Xuất thành một file csv của dữ liệu sản phẩm đã làm sạch
+  fs.writeFileSync("./output/products.json", JSON.stringify(cleanedProducts));
+  convertJsonToCsv("./output/products.json", "./output/products.csv");
+});
+
+test("Làm sạch handler cho search index documents", () => {
+  // Đọc dữ liệu từ file search.json
+  const files = fs.readFileSync("./output/search.json", "utf-8");
+  let products: SearchIndex[] = [];
+
+  // Làm sạch handler của từng sản phẩm trong dữ liệu
+  const cleanedProducts: SearchIndex[] = products.map((product) => {
+    return {
+      ...product,
+      handler: removeOthers(removeDiacritics(product.handler)),
+    };
+  });
+
+  // Xuất thành một file csv của dữ liệu sản phẩm đã làm sạch
+  fs.writeFileSync("./output/search.json", JSON.stringify(cleanedProducts));
+});
+
+/**
+ * Test dùng để lấy search index document đã có và gộp chung các variant của cùng một sản phẩm thành 1 document
+ */
+test("Gộp các variant của cùng một sản phẩm thành 1 document", () => {
+  // Đọc dữ liệu từ file search.json
+  const searchIndexes = fs.readFileSync("./output/search.json", "utf-8");
+  const data = JSON.parse(searchIndexes) as {
+    id: string;
+    handler: string;
+    title: string;
+    category: string;
+    short_description: string;
+    description: string;
+    variant: string;
+    thumbnail: string;
+  }[];
+
+  // Gộp các variant của cùng một sản phẩm thành 1 document
+  const mergedData = mergeVariant(data);
+
+  // Xuất dữ liệu ra file search.json
+  fs.writeFileSync("./output/search.json", JSON.stringify(mergedData));
+});
+
+/**
+ * Test chỉ sử dụng 1 lần
+ * Test dùng để xóa các variant lặp lại trong search index documents
+ */
+test("Xóa các variant lặp lại trong search index documents", () => {
+  // Đọc dữ liệu từ file search.json
+  const searchIndexes = fs.readFileSync("./output/search.json", "utf-8");
+  const data = JSON.parse(searchIndexes) as SearchIndex[];
+  const sampleData = [
+    {
+      id: "4",
+      handler: "đồ-bơi-1-mảnh-trẻ-em-yingfa-24u722-kids-swimsuit",
+      title: "Đồ Bơi 1 Mảnh Trẻ Em YINGFA 24U722 Kid's Swimsuit",
+      category: "",
+      short_description: "",
+      description: "",
+      variant: [
+        "Tím nhạt / Size 8",
+        "Tím nhạt / Size 10",
+        "Tím nhạt / Size 6",
+        "Tím nhạt / Size 8",
+        "Tím nhạt / Size 10",
+        "Tím nhạt / Size 6",
+      ],
+    },
+    {
+      id: "5",
+      handler: "kính-bơi-trẻ-em-yingfa-j390af-kids-swim-goggles",
+      title: "Kính Bơi Trẻ Em YINGFA J390AF Kid's Swim Goggles",
+      category: "",
+      short_description: "",
+      description: "",
+      variant: [
+        "-1 Đen/Đỏ",
+        "-2 Đen/Trắng",
+        "-3 Xanh/Cam",
+        "-4 Xanh/Hồng",
+        "-5 Xanh lá/Vàng",
+        "-1 Đen/Đỏ",
+        "-2 Đen/Trắng",
+        "-3 Xanh/Cam",
+        "-4 Xanh/Hồng",
+        "-5 Xanh lá/Vàng",
+      ],
+    },
+  ];
+
+  // Xóa các variant lặp lại
+  const cleanedData = data.map((item) => {
+    const variants = item.variants;
+    const uniqueVariants = variants.filter(
+      (variant, index, self) => index === self.findIndex((v) => v === variant)
+    );
+
+    return {
+      ...item,
+      variant: uniqueVariants,
+    };
+  });
+
+  // Xuất dữ liệu ra file search.json
+  fs.writeFileSync("./output/search.json", JSON.stringify(cleanedData));
+});

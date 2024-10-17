@@ -1,22 +1,19 @@
 import { expect, Page, test } from "@playwright/test";
-import { MedusaProduct, RawProduct, SearchIndex } from "./bhswim.type";
+import { RawProduct } from "./bhswim.type";
 import fs from "fs";
 import {
-  checkValidId,
-  convertJsonToCsv,
-  convertRawToSearchingData,
   exportCrawlFiles,
   exportCrawlInfo,
+  getNumberOfPages,
   removeDiacritics,
   removeOthers,
   sleep,
 } from "./utils";
 import { randomInt } from "crypto";
 
-test("crawl từ trang 25", async ({ page }) => {
+test("crawl", async ({ page }) => {
   test.setTimeout(6 * 60 * 60 * 1000);
-  const startPage = 25;
-
+  const startPage = 0;
   const pageUrl = "https://bhswim.com";
   const productPerPage: 20 | 30 | 50 = 20;
   const categories: { label: string; url: string }[] = [
@@ -50,6 +47,7 @@ test("crawl từ trang 25", async ({ page }) => {
       }
     }
   }
+  await getCategories();
 
   const pageNumber = await page
     .getByRole("link", { name: " Cuối cùng" })
@@ -92,7 +90,7 @@ test("crawl từ trang 25", async ({ page }) => {
     const productUrl = pageUrl + item.url;
     await page.goto(productUrl, { waitUntil: "domcontentloaded" }).then(
       async () =>
-        await getProduct(page, item.category).then((productVariants) => {
+        await getProductOld(page, item.category).then((productVariants) => {
           products.push(...productVariants);
         })
     );
@@ -111,7 +109,10 @@ test("crawl từ trang 25", async ({ page }) => {
   exportCrawlFiles(products);
 });
 
-async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
+async function getProductOld(
+  page: Page,
+  category: string
+): Promise<RawProduct[]> {
   let products: RawProduct[] = [];
 
   // Lấy tên sản phẩm
@@ -141,7 +142,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
    * 5. Thay thể tất cả các chữ cái Tiếng Việt có dấu thành không dấu [removeDiacritics()]
    * 6. Loại bỏ các ký tự đặc biệt [removeOthers()]
    */
-  const handler = productTitle
+  const handle = productTitle
     ? removeOthers(
         removeDiacritics(
           productTitle
@@ -685,7 +686,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
 
   if (optionKeys.length === 0) {
     products.push({
-      handler,
+      handle,
       title: productTitle || "",
       priceVnd: productPrice ? Number(productPrice) : null,
       category,
@@ -712,7 +713,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
         });
 
       products.push({
-        handler,
+        handle,
         title: productTitle || "",
         priceVnd: productPrice ? Number(productPrice) : null,
         category,
@@ -737,7 +738,7 @@ async function getProduct(page: Page, category: string): Promise<RawProduct[]> {
           await getCoupleOptionVariant(i, j);
 
         products.push({
-          handler,
+          handle,
           title: productTitle || "",
           priceVnd: productPrice ? Number(productPrice) : null,
           category,
@@ -806,7 +807,7 @@ test("Bad cases", async ({ page }) => {
     })
     .then(
       async () =>
-        await getProduct(page, "Sản phẩm mới").then((productVariants) => {
+        await getProductOld(page, "Sản phẩm mới").then((productVariants) => {
           products.push(...productVariants);
         })
     );
@@ -815,71 +816,900 @@ test("Bad cases", async ({ page }) => {
 });
 
 /**
- * Test dùng để gộp hết dữ liệu crawl từ các file trong thư mục output/crawl thành một file duy nhất
- * và xuất ra thành index documents thành file search.json dùng để tìm kiếm
+ * Lấy tất cả url manufacturer từ trang web
  */
-test("Export search indexes", async () => {
-  // Đọc dữ liệu của từng file trong thư mục output/crawl/
-  const files = fs.readdirSync("./output/crawl");
-  let products: MedusaProduct[] = [];
-  for (let file of files) {
-    const rawData = fs.readFileSync(`./output/crawl/${file}`, "utf-8");
-    const data = JSON.parse(rawData);
-    products.push(...data);
-  }
+test("Step 1 - Lấy danh sách manufacturer", async ({ page }) => {
+  const url = "https://bhswim.com/manufacturer/all";
 
-  // Chuyển dữ liệu thành format search index
-  const searchIndexes = convertRawToSearchingData(products);
-
-  // Xuất dữ liệu ra file
-  fs.writeFileSync("./output/search.json", JSON.stringify(searchIndexes));
-});
-
-/**
- * Test dùng để kiểm tra xem các handle của sản phẩm có hợp lệ không
- * Handle hợp lệ: chỉ chứa các ký tự a-z, A-Z, 0-9, dấu gạch ngang (-) và daa dấu gạch dưới (_)
- */
-test("Check valid product handle", async () => {
-  const searchIndexes = fs.readFileSync("./output/products.json", "utf-8");
-  const data = JSON.parse(searchIndexes) as MedusaProduct[];
-  for (let item of data) {
-    const isValidId = checkValidId(item["Product Handle"]);
-    if (!isValidId) {
-      throw new Error(`Invalid id: ${item["Product Handle"]}`);
-    }
-  }
-});
-
-/**
- * Test dùng để lấy dữ liệu sản phẩm đã crawl và thay đổi dữ liệu thành dạng csv
- * Các bước thay đổi dữ liệu:
- * 1. Chỉnh sửa `handle`:
- *  - Chuyển tất cả chữ cái có dấu thành chữ cái không dấu
- *  - Loại bỏ các ký tự đặc biệt
- * 2. Thêm tên sales channel: Default Sale Channel
- */
-test("Làm sạch handler", () => {
-  // Đọc dữ liệu từ các file trong thư mục output/crawl
-  const files = fs.readdirSync("./output/crawl");
-  let products: MedusaProduct[] = [];
-  for (let file of files) {
-    const rawData = fs.readFileSync(`./output/crawl/${file}`, "utf-8");
-    const data = JSON.parse(rawData);
-    products.push(...data);
-  }
-
-  // Làm sạch handler của từng sản phẩm trong dữ liệu
-  const cleanedProducts: MedusaProduct[] = products.map((product) => {
-    return {
-      ...product,
-      "Product Handle": removeOthers(
-        removeDiacritics(product["Product Handle"])
-      ),
-      "Sales Channel 1 Name": "Default Sale Channel",
-    };
+  // Mở trang web
+  await page.goto(url, {
+    waitUntil: "domcontentloaded",
   });
 
-  // Xuất thành một file csv của dữ liệu sản phẩm đã làm sạch
-  fs.writeFileSync("./output/products.json", JSON.stringify(cleanedProducts));
-  convertJsonToCsv("./output/products.json", "./output/products.csv");
+  const manufacturerLocators = await page
+    .locator(".manufacturer-list-page")
+    .first()
+    .locator(".item-box")
+    .all();
+
+  // Lấy danh sách manufacturer
+  const manufacturers: { name: string; url: string }[] = [];
+
+  for (const locator of manufacturerLocators) {
+    const name = await locator.locator("a").first().innerText();
+    const url = (await locator.locator("a").first().getAttribute("href")) || "";
+    manufacturers.push({ name, url });
+  }
+
+  // Lưu danh sách vào file manufacturer.json
+  fs.writeFileSync(
+    "./output/crawl-by-manufacturers/manufacturer.json",
+    JSON.stringify(manufacturers)
+  );
 });
+
+/**
+ * Lấy tất cả url sản phẩm từ manufacturer
+ */
+test("Step 2 - Lấy danh sách sản phẩm từ manufacturer", async ({ page }) => {
+  test.setTimeout(6 * 60 * 60 * 1000);
+
+  /**
+   * Lấy tất cả url sản phẩm của một manufacturer
+   *  */
+  async function getUrlList({
+    url,
+    manufacturer,
+  }: {
+    url: string;
+    manufacturer: string;
+  }): Promise<
+    {
+      productUrl: string;
+      manufacturer: string;
+    }[]
+  > {
+    function updateCrawlFile(status: {
+      manufacturer: string;
+      page: number;
+      productUrl: string;
+    }) {
+      // Lưu danh sách vào file products-{manufacturer_name}.json
+      fs.writeFileSync(
+        `./output/crawl-by-manufacturers/step2-status.json`,
+        JSON.stringify(status)
+      );
+    }
+
+    // Mở trang web
+    await page.goto(url + `?viewmode=grid`, { waitUntil: "domcontentloaded" });
+
+    // Lấy số trang sản phẩm
+    let numberOfPages = (await getNumberOfPages(page)).toString();
+
+    // Lấy tất cả url sản phẩm
+    const products: {
+      productUrl: string;
+      manufacturer: string;
+    }[] = [];
+
+    for (let i = 1; i <= Number(numberOfPages); i++) {
+      // Chuyển trang sản phẩm
+      await page.goto(url + `?pagenumber=${i}&viewmode=grid`, {
+        waitUntil: "domcontentloaded",
+      });
+
+      // Lấy danh sách url sản phẩm
+      const itemLocators = await page
+        .locator(".products-container")
+        .locator(".item-box")
+        .all();
+      const promises = itemLocators.map(async (item, index) => {
+        await item
+          .locator(".details")
+          .locator("a")
+          .first()
+          .getAttribute("href", { timeout: 5000 })
+          .then(async (url) => {
+            if (url) {
+              products.push({ productUrl: url, manufacturer });
+              updateCrawlFile({
+                manufacturer: manufacturer,
+                page: i,
+                productUrl: url,
+              });
+            }
+          })
+          .catch(async () => {
+            console.log(
+              `Không lấy được url sản phẩm\n Trang: ${i} - Sản phẩm thứ ${index}`
+            );
+          });
+      });
+      await Promise.all(promises);
+    }
+    return products;
+  }
+
+  const baseUrl = "https://bhswim.com";
+
+  // Đọc url của từng manufacturer trong file /output/crawl-by-manufacturers/manufacturer.json
+  const fileData = fs.readFileSync(
+    "./output/crawl-by-manufacturers/manufacturer.json",
+    "utf-8"
+  );
+  const manufacturers = JSON.parse(fileData) as { name: string; url: string }[];
+
+  const productUrls: {
+    productUrl: string;
+    manufacturer: string;
+  }[] = [];
+
+  for (const manufacturer of manufacturers) {
+    const urlList = await getUrlList({
+      url: baseUrl + manufacturer.url,
+      manufacturer: manufacturer.name,
+    });
+    productUrls.push(...urlList);
+    // Lưu danh sách vào file products-{manufacturer_name}.json
+    fs.writeFileSync(
+      `./output/crawl-by-manufacturers/product-urls.json`,
+      JSON.stringify(productUrls)
+    );
+  }
+});
+
+/**
+ * Lấy dữ liệu sản phẩm từ danh sách url sản phẩm
+ */
+test("Step 3 - Lấy dữ liệu sản phẩm từ danh sách url sản phẩm", async ({
+  page,
+}) => {
+  test.setTimeout(6 * 60 * 60 * 1000);
+
+  const baseUrl = "https://bhswim.com";
+
+  function saveCrawlStatus(status: {
+    manufacturer: string;
+    productIndex: string;
+    productUrl: string
+  }) {
+    fs.writeFileSync(
+      "./output/crawl-by-manufacturers/step3-status.json",
+      JSON.stringify(status)
+    );
+  }
+
+  // Đọc danh sách url sản phẩm từ file /output/crawl-by-manufacturers/product-urls.json
+  const fileData = fs.readFileSync(
+    "./output/crawl-by-manufacturers/product-urls.json",
+    "utf-8"
+  );
+  const productUrls = JSON.parse(
+    fileData
+  ) as { productUrl: string; manufacturer: string }[];
+
+  // Lấy dữ liệu sản phẩm từ từng url
+  const products: RawProduct[] = [];
+  for (let i = 0; i < productUrls.length; i++) {
+    const productVariants = await getProduct(page, baseUrl + productUrls[i].productUrl, productUrls[i].manufacturer);
+    products.push(...productVariants);
+
+    // Lưu danh sách sản phẩm vào file /output/crawl-by-manufacturers/products-medusa.json
+    exportCrawlFiles(products);
+
+    // Lưu trạng thái crawl
+    saveCrawlStatus({
+      manufacturer: productUrls[i].manufacturer,
+      productIndex: `${i} / ${productUrls.length}`,
+      productUrl: productUrls[i].productUrl,
+    });
+  }
+});
+
+async function getProductTitle(page: Page, productUrl: string) {
+  return (
+    await page
+      .locator(".product-name")
+      .locator("h1")
+      .innerText({ timeout: 5000 })
+      .catch(() => {
+        throw `Không lấy được title, ${productUrl}`;
+      })
+  ).trim();
+}
+
+function getProductHandle(title: string) {
+  return removeOthers(
+    removeDiacritics(
+      title.toLowerCase().trim().replace(/\s+/g, " ").replace(/ /g, "-")
+    )
+  );
+}
+
+async function getProductCategory(page: Page, productUrl: string) {
+  const categories: string[] = [];
+  const categoryLocators = await page.locator(".breadcrumb").locator("a").all();
+
+  const promises = categoryLocators.map(async (locator, index) => {
+    const label = await locator
+      .locator("span")
+      .innerText({ timeout: 5000 })
+      .catch(() => {
+        throw `Không lấy được label của category, ${productUrl}`;
+      });
+
+    const url = await locator
+      .getAttribute("href", { timeout: 5000 })
+      .catch(() => {
+        throw `Không lấy được url của category, ${productUrl}`;
+      });
+
+    // Lấy category nếu không phải là trang chủ và không phải là trang sản phẩm
+    if (url != "/" && index != categoryLocators.length - 1) {
+      categories.push(label);
+    }
+  });
+  await Promise.all(promises);
+  return categories.join(",");
+}
+
+async function getProductShortDescription(page: Page) {
+  let shortDescription: string = "";
+  const haveShortDescription = await expect(page.locator(".short-description"))
+    .toHaveCount(1, { timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+
+  if (haveShortDescription) {
+    shortDescription = (await page.locator(".short-description").innerText())
+      .toString()
+      .replace("/\n/g", " ")
+      .trim();
+  }
+  return shortDescription;
+}
+
+async function getProductDescription(page: Page) {
+  let description: string = "";
+
+  const haveFullDescription = await expect(
+    page.getByRole("tabpanel", { name: "Thông tin sản phẩm" })
+  )
+    .toHaveCount(1, { timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+
+  if (haveFullDescription) {
+    description =
+      (await page
+        .getByRole("tabpanel", { name: "Thông tin sản phẩm" })
+        .locator("div")
+        .first()
+        .textContent()) || "";
+  }
+
+  if (description) {
+    description = description.replace(/"/g, '"').trim();
+  }
+  return description;
+}
+
+async function getProductImages(page: Page) {
+  const imageLocators = await page.locator(".slick-track").locator("div").all();
+  const imageSrcList: string[] = [];
+
+  if (imageLocators.length > 0) {
+    for (let locator of imageLocators) {
+      const src = await locator
+        .locator("a")
+        .getAttribute("data-full-image-url", { timeout: 5000 })
+        .catch(() => null);
+      if (src) {
+        imageSrcList.push(src);
+      }
+    }
+  } else {
+    const src = await page
+      .locator("#sevenspikes-cloud-zoom")
+      .locator("a")
+      .getAttribute("data-full-image-url", { timeout: 5000 })
+      .catch(() => null);
+    if (src) {
+      imageSrcList.push(src);
+    }
+  }
+  return imageSrcList;
+}
+
+async function getProductPrice(page: Page) {
+  let price: string | null = null;
+  const priceLocator = page.locator(".product-price").locator("strong");
+
+  const isVisiblePrice = await expect(priceLocator)
+    .toHaveCount(1, { timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+
+  if (isVisiblePrice) {
+    price = (await priceLocator.innerText())
+      .replace("₫", "")
+      .replace(/\./g, "")
+      .trim();
+  }
+  return Number(price);
+}
+
+async function getProductOptions(page: Page) {
+  const options: Record<string, Option> = {};
+
+  const optionsLocator = page.locator(".attributes").locator("dl");
+  const optionLabelLocator = await optionsLocator.locator("dt").all();
+  const optionValueLocator = await optionsLocator.locator("dd").all();
+
+  for (let i = 0; i < optionLabelLocator.length; i++) {
+    const optionLabel = (
+      (await optionLabelLocator[i].locator("label").textContent()) || ""
+    ).trim();
+    const optionValues = await optionValueLocator[i]
+      .locator("ul")
+      .locator("li")
+      .all();
+    const values: string[] = [];
+    let type: "squareWithLabel" | "squareWithImage" | "circle" =
+      "squareWithLabel";
+
+    for (let optionValue of optionValues) {
+      let label = (await optionValue.locator("label").innerText()).trim();
+
+      // Trường hợp option màu sắc
+      if (label == "") {
+        type = "squareWithLabel";
+        label =
+          (await optionValue.locator("span").first().getAttribute("title")) ||
+          "";
+
+        // Trường hợp option màu sắc có tên ở thẻ tooltip
+        // Option này có hình hiện lên khi trỏ vào
+        if (label == "") {
+          type = "squareWithImage";
+          label = await optionValue.locator(".tooltip-header").innerText();
+        }
+        values.push(label);
+      } else {
+        type = "circle";
+        values.push(label);
+      }
+    }
+
+    options[optionLabel] = {
+      type,
+      values,
+    };
+  }
+
+  return options;
+}
+
+async function getProductInventoryQuantity(page: Page) {
+  let stock = 0;
+
+  // Kiểm tra trạng thái kho có được hiển thị hay không
+  const isVisibleStock = await expect(page.locator(".stock").locator(".value"))
+    .toHaveCount(1, {
+      timeout: 5000,
+    })
+    .then(() => true)
+    .catch(() => false);
+
+  // Kiểm tra số lượng tồn kho có được hiển thị hay không
+  if (isVisibleStock) {
+    const inStock = await expect(page.locator(".stock").locator(".value"))
+      .toHaveText(/^[0-9].*/, { timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+    if (inStock) {
+      stock = Number(
+        (await page.locator(".stock").locator(".value").innerText()).split(
+          " "
+        )[0]
+      );
+    } else {
+      // Hiện trạng thái kho nhưng không hiện số lượng tồn
+      stock = 0;
+    }
+  } else {
+    // Không hiện trạng thái kho
+    stock = 0;
+  }
+  return stock;
+}
+
+async function getProductVariant({
+  page,
+  handle,
+  productTitle,
+  priceVnd,
+  category,
+  manufacturer,
+  shortDescription,
+  description,
+  thumbnail,
+  images,
+  inventoryQuantity,
+  options,
+}: {
+  page: Page;
+  handle: string;
+  productTitle: string;
+  priceVnd: number;
+  category: string;
+  manufacturer: string;
+  shortDescription: string;
+  description: string;
+  thumbnail: string;
+  images: string[];
+  inventoryQuantity: number;
+  options: Record<string, Option>;
+}) {
+  const products: RawProduct[] = [];
+
+  // Tạo variant từ options
+  const optionKeys = Object.keys(options);
+  const optionValues = Object.values(options);
+
+  /**
+   * Retrieves the variant details for a given product option.
+   *
+   * @param optionValue - The value of the option to be selected.
+   * @param numberOfOption - The total number of options available.
+   * @param optionIndex - The index of the option in the list of options, this can be leave empty if `numberOfOption = 1` .
+   * @param valueIndex - The index of value of the first option, it's used for square option with image or 'squareWithImage' option type
+   *
+   * @returns A promise that resolves to an object containing the variant details:
+   * - `title`: The title of the variant.
+   * - `inventoryQuantity`: The quantity of the variant available in stock.
+   * - `priceVnd`: The price of the variant in VND.
+   * - `options`: An object representing the selected options.
+   */
+  async function getSingleOptionVariant({
+    optionValue,
+    valueIndex,
+  }: {
+    optionValue: string;
+    valueIndex: number;
+  }) {
+    let variantTitle = optionValue;
+    let inventoryQuantity: number | null = null;
+    let options = {
+      [optionKeys[0]]: optionValue,
+    };
+
+    if (optionValues[0].type == "squareWithLabel") {
+      // Option màu sắc có label
+      const childLocator = page.getByTitle(optionValue, {
+        exact: true,
+      });
+      const isDisabledOption =
+        (await page
+          .locator(".attributes")
+          .locator("label")
+          .filter({ has: childLocator })
+          .locator("input")
+          .getAttribute("disabled", { timeout: 5000 })) != null;
+
+      if (!isDisabledOption) {
+        // Chờ response trả về từ server sau khi click vào option
+        const reponsePromise = page
+          .waitForResponse(
+            (resp) =>
+              resp
+                .url()
+                .includes("/shoppingcart/productdetails_attributechange") &&
+              resp.status() === 200,
+            { timeout: 10000 }
+          )
+          .catch(() => null);
+
+        // Click vào option và chờ response trả về với status 200
+        await page
+          .locator(".product-essential")
+          .getByTitle(optionValue, { exact: true })
+          .locator("span")
+          .click();
+        const response = await reponsePromise;
+
+        // Lấy số lượng sản phẩm nếu có response 200 từ server
+        inventoryQuantity = response
+          ? await getProductInventoryQuantity(page)
+          : 0;
+      } else {
+        inventoryQuantity = 0;
+        console.log("Option bị disable");
+      }
+    } else if (optionValues[0].type == "squareWithImage") {
+      // Trường hợp option có label và value rỗng
+      // Ví dụ: https://bhswim.com/%C3%A1o-b%C6%A1i-thi-%C4%91%E1%BA%A5u-n%E1%BB%AF-tyr-womens-avictor-20-exolon-closed-back-swimsuit
+
+      variantTitle = `Mặc định ${valueIndex + 1}`;
+      options = {};
+      options["Mặc định"] = variantTitle;
+
+      // Kiểm tra option có disabled hay không
+      const inputLocator = page
+        .locator(".attributes")
+        .locator("li")
+        .filter({ has: page.getByText(optionValue, { exact: true }) })
+        .getByRole("radio")
+        .first();
+      const isDisabledOption =
+        (await inputLocator.getAttribute("disabled", {
+          timeout: 5000,
+        })) != null;
+
+      // Click vào option nếu option không bị disable
+      if (!isDisabledOption) {
+        // Chờ response trả về từ server sau khi click vào option
+        const reponsePromise = page
+          .waitForResponse(
+            (resp) =>
+              resp
+                .url()
+                .includes("/shoppingcart/productdetails_attributechange") &&
+              resp.status() === 200,
+            { timeout: 10000 }
+          )
+          .catch(() => null);
+
+        // Click vào option và chờ response trả về với status 200
+        const buttonLocator = page
+          .locator(".attributes")
+          .first()
+          .locator("li")
+          .filter({ hasText: optionValue })
+          .locator("span")
+          .last();
+        await buttonLocator.click();
+        const response = await reponsePromise;
+
+        // Lấy số lượng sản phẩm nếu có response 200 từ server
+        inventoryQuantity = response
+          ? await getProductInventoryQuantity(page)
+          : 0;
+      } else {
+        inventoryQuantity = 0;
+        console.log("Option bị disable");
+      }
+    } else {
+      //** Trường hợp option có dạng tròn */
+      await expect(page.getByText(optionValue, { exact: true }))
+        .toBeEnabled()
+        .then(async () => {
+          // Chờ response trả về từ server sau khi click vào option
+          const reponsePromise = page
+            .waitForResponse(
+              (resp) =>
+                resp
+                  .url()
+                  .includes("/shoppingcart/productdetails_attributechange") &&
+                resp.status() === 200,
+              { timeout: 10000 }
+            )
+            .catch(() => null);
+
+          // Click vào option và chờ response trả về với status 200
+          await page.getByText(optionValue, { exact: true }).click();
+          const response = await reponsePromise;
+
+          // Lấy số lượng sản phẩm nếu có response 200 từ server
+          inventoryQuantity = response
+            ? await getProductInventoryQuantity(page)
+            : 0;
+        })
+        .catch(() => {
+          inventoryQuantity = 0;
+          console.log("Không click được option", variantTitle);
+        });
+    }
+    return {
+      variantTitle,
+      inventoryQuantity,
+      options,
+    };
+  }
+
+  /**
+   * Lấy tên và số lượng của option bằng việc click vào option
+   * @param index Thứ tự của option, mỗi sản phẩm sẽ chỉ có thể có 1 hoặc 2 options
+   * @param type Loại option, gồm 3 loại là hình vuông có tên hoặc có hình ảnh (thường là màu sắc) và hình tròn (thường là kích thước)
+   * @param value Giá trị của option, ví dụ option Màu sắc có giá trị Trắng và Đen
+   */
+  async function clickOption(
+    type: "squareWithLabel" | "squareWithImage" | "circle",
+    value: string
+  ): Promise<boolean> {
+    if (type == "squareWithLabel") {
+      // Kiểm tra option có bị disabled hay không
+      const childLocator = page.getByTitle(value, {
+        exact: true,
+      });
+      const isDisabledOption =
+        (await page
+          .locator(".attributes")
+          .locator("label")
+          .filter({ has: childLocator })
+          .locator("input")
+          .first()
+          .getAttribute("disabled", { timeout: 5000 })) != null;
+
+      if (isDisabledOption) {
+        return false;
+      }
+
+      // Nếu option không bị disabled, click option
+      /// Chờ response trả về từ server sau khi click vào option
+      const responsePromise = page
+        .waitForResponse(
+          (resp) =>
+            resp
+              .url()
+              .includes("/shoppingcart/productdetails_attributechange") &&
+            resp.status() === 200,
+          { timeout: 10000 }
+        )
+        .catch(() => null);
+      await page
+        .locator(".product-essential")
+        .getByTitle(value, { exact: true })
+        .locator("span")
+        .click({ timeout: 5000 });
+      const isSuccessClick = !!(await responsePromise);
+
+      return isSuccessClick;
+    } else if (type == "squareWithImage") {
+      // Kiểm tra option có disabled hay không
+      const inputLocator = page
+        .locator(".attributes")
+        .locator("li")
+        .filter({ has: page.getByText(value, { exact: true }) })
+        .getByRole("radio")
+        .first();
+      const isDisabledOption =
+        (await inputLocator.getAttribute("disabled", {
+          timeout: 5000,
+        })) != null;
+
+      if (isDisabledOption) {
+        return false;
+      } else {
+        const responsePromise = page
+          .waitForResponse(
+            (resp) =>
+              resp
+                .url()
+                .includes("/shoppingcart/productdetails_attributechange") &&
+              resp.status() === 200,
+            { timeout: 10000 }
+          )
+          .catch(() => null);
+        await page
+          .locator(".attributes")
+          .first()
+          .locator("li")
+          .filter({ hasText: value })
+          .locator("span")
+          .last()
+          .click({ timeout: 5000 });
+        const isSuccessClick = !!(await responsePromise);
+
+        return isSuccessClick;
+      }
+    } else {
+      const inputLocator = page
+        .locator(".attributes")
+        .locator("li")
+        .getByLabel(value, { exact: true })
+        .first();
+      const isDisabledOption =
+        (await inputLocator.getAttribute("disabled", { timeout: 5000 })) !=
+        null;
+
+      if (isDisabledOption) {
+        return false;
+      } else {
+        const responsePromise = page
+          .waitForResponse(
+            (resp) =>
+              resp
+                .url()
+                .includes("/shoppingcart/productdetails_attributechange") &&
+              resp.status() === 200,
+            { timeout: 10000 }
+          )
+          .catch(() => null);
+        await page
+          .getByText(value, { exact: true })
+          .first()
+          .click({ timeout: 5000 });
+        const isSuccessClick = !!(await responsePromise);
+
+        return isSuccessClick;
+      }
+    }
+  }
+
+  /**
+   * Lấy thông tin của variant, bao gồm title, số lượng sp, giá và các giá trị của options
+   * @param optionIndex1 Vị trí giá trị của option thứ nhất, ví dụ giá trị `Cam` của option có tập giá trị là `[Cam, Đỏ, Vàng]` thì vị trí giá thị là `0`
+   * @param optionIndex2 Vị trí giá trị của option thứ hai
+   * @returns `title`: Tiêu đề của variant
+   * @returns `inventoryQuantity`: Số lượng sản phẩm
+   * @returns `priceVnd`: Giá tiền
+   * @returns `options`: Các giá trị của options
+   */
+  async function getCoupleOptionVariant(
+    optionIndex1: number,
+    optionIndex2: number
+  ): Promise<{
+    variantTitle: string;
+    inventoryQuantity: number;
+    priceVnd: number;
+    options: Record<string, string>;
+  }> {
+    const title = {
+      1: optionValues[0].values[optionIndex1],
+      2: optionValues[1].values[optionIndex2],
+    };
+    const options = {
+      [optionKeys[0]]: optionValues[0].values[optionIndex1],
+      [optionKeys[1]]: optionValues[1].values[optionIndex2],
+    };
+    let inventoryQuantity = 0;
+    let isFirstSuccessClick = false;
+    let isSecondSucessClick = false;
+
+    // Click option 1
+    isFirstSuccessClick = await clickOption(
+      optionValues[0].type,
+      optionValues[0].values[optionIndex1]
+    );
+
+    // Click option 2
+    if (isFirstSuccessClick) {
+      isSecondSucessClick = await clickOption(
+        optionValues[1].type,
+        optionValues[1].values[optionIndex2]
+      );
+    }
+
+    // Lưu số lượng sản phẩm
+    inventoryQuantity =
+      isFirstSuccessClick && isSecondSucessClick
+        ? await getProductInventoryQuantity(page)
+        : 0;
+
+    // Xuất kết quả
+    return {
+      variantTitle: `${title[1]} / ${title[2]}`,
+      inventoryQuantity,
+      priceVnd,
+      options,
+    };
+  }
+
+  if (optionKeys.length === 0) {
+    products.push({
+      handle,
+      title: productTitle,
+      priceVnd,
+      category,
+      manufacturer,
+      shortDescription,
+      description,
+      thumbnail,
+      images,
+      variant: {
+        title: productTitle,
+        inventoryQuantity,
+        priceVnd,
+        options: {},
+        manageInventory: true,
+      },
+      status: "published",
+    });
+  } else if (optionKeys.length === 1) {
+    for (let i = 0; i < optionValues[0].values.length; i++) {
+      const { variantTitle, inventoryQuantity, options } =
+        await getSingleOptionVariant({
+          optionValue: optionValues[0].values[i],
+          valueIndex: i,
+        });
+
+      products.push({
+        handle,
+        title: productTitle,
+        priceVnd,
+        category,
+        manufacturer,
+        shortDescription,
+        description,
+        thumbnail,
+        images,
+        variant: {
+          title: variantTitle,
+          inventoryQuantity,
+          priceVnd,
+          options,
+        },
+        status: "published",
+      });
+    }
+  } else if (optionKeys.length === 2) {
+    for (let i = 0; i < optionValues[0].values.length; i++) {
+      for (let j = 0; j < optionValues[1].values.length; j++) {
+        const { variantTitle, inventoryQuantity, priceVnd, options } =
+          await getCoupleOptionVariant(i, j);
+
+        products.push({
+          handle,
+          title: productTitle,
+          priceVnd,
+          category,
+          manufacturer,
+          shortDescription,
+          description,
+          thumbnail,
+          images,
+          variant: {
+            title: variantTitle,
+            inventoryQuantity,
+            priceVnd,
+            options,
+            manageInventory: true,
+          },
+          status: "published",
+        });
+      }
+    }
+  }
+
+  return products;
+}
+
+async function getProduct(page: Page, productUrl: string, manufacturer: string) {
+  // Mở trang web
+  await page.goto(productUrl, {
+    waitUntil: "domcontentloaded",
+  });
+
+  const title = await getProductTitle(page, productUrl);
+  const handle = getProductHandle(title);
+  const category: string = await getProductCategory(page, productUrl);
+  const shortDescription: string = await getProductShortDescription(page);
+  const description: string = await getProductDescription(page);
+  const images: string[] = await getProductImages(page);
+  const thumbnail: string = images[0];
+  const priceVnd: number = await getProductPrice(page);
+  const inventoryQuantity: number = await getProductInventoryQuantity(page);
+  const options: Record<string, Option> = await getProductOptions(page);
+  const variantList: RawProduct[] = await getProductVariant({
+    page,
+    handle,
+    productTitle: title,
+    manufacturer,
+    category,
+    shortDescription,
+    description,
+    thumbnail,
+    images,
+    priceVnd,
+    options,
+    inventoryQuantity,
+  });
+  return variantList;
+}
+
+type Option = {
+  type: "squareWithLabel" | "squareWithImage" | "circle";
+  values: string[];
+};

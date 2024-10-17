@@ -1,9 +1,8 @@
 import csvjson from "csvjson";
 import fs from "fs";
-import { MedusaProduct, RawProduct } from "./bhswim.type";
+import { MedusaProduct, RawProduct, SearchIndex } from "./bhswim.type";
 import { expect, Page } from "@playwright/test";
-import { randomInt } from "crypto";
-import { url } from "inspector";
+
 const diacriticsMap: { [key: string]: string } = {
   á: "a",
   à: "a",
@@ -171,9 +170,18 @@ export const convertRawToMedusaProduct = (
     return null;
   }
 
+  const categories = rawProduct.category?.split(",");
+  const categoryHandle = categories
+    ?.map((category) =>
+      removeOthers(
+        removeDiacritics(category.toLowerCase())
+      ).replace(/\s+/g, "-")
+    )
+    .join("_");
+
   const product: MedusaProduct = {
     "Product Id": "",
-    "Product Handle": rawProduct.handler,
+    "Product Handle": rawProduct.handle,
     "Product Title": rawProduct.title,
     "Product Subtitle": rawProduct.shortDescription || "", // Assuming no subtitle in RawProduct
     "Product Description": rawProduct.description || "",
@@ -236,6 +244,8 @@ export const convertRawToMedusaProduct = (
     "Image 9 Url": "",
     "Image 10 Url": "",
     "Sales Channel 1 Name": "Default Sale Channel",
+    "Product Category 1 Handle": categoryHandle || "",
+    "Product Category 1 Name": rawProduct.category || "",
   };
 
   for (const image in rawProduct.images) {
@@ -298,20 +308,19 @@ export function convertRawToSearchingData(
       return null;
     }
     return {
-      id: ++count,
+      id: (++count).toString(),
       handler: product["Product Handle"],
       title: product["Product Title"],
-      category: product["Product Collection Title"],
+      category: product["Product Category 1 Name"],
       short_description: product["Product Subtitle"],
       description: product["Product Description"],
       variant: product["Variant Title"],
+      thumbnail: product["Product Thumbnail"],
     };
   });
 }
 
 export function exportCrawlFiles(data: RawProduct[], isTest?: boolean) {
-  console.log("Đã xuất dữ liệu search");
-
   const convertedData = data.map((product) =>
     convertRawToMedusaProduct(product)
   );
@@ -319,23 +328,21 @@ export function exportCrawlFiles(data: RawProduct[], isTest?: boolean) {
   // Xuất dữ liệu để nạp vào MeiliSearch
   const searchFile = isTest
     ? `./output/search-test.json`
-    : `./output/search.json`;
+    : `./output/crawl-by-manufacturers/meilisearch.json`;
   const searchData = convertRawToSearchingData(convertedData);
 
   // Xuất dữ liệu sản phẩm ở dạng json
   fs.writeFileSync(searchFile, JSON.stringify(searchData));
   const medusaFile = isTest
     ? `./output/products-test.json`
-    : `./output/products.json`;
+    : `./output/crawl-by-manufacturers/products.json`;
   fs.writeFileSync(medusaFile, JSON.stringify(convertedData));
-  console.log("Đã xuất dữ liệu sản phẩm ở dạng json");
 
   // Xuất dữ liệu sản phẩm ở dạng csv
   const csvFile = isTest
-    ? `./output/products-test.csv`
-    : `./output/products.csv`;
+    ? `./output/products-medusa-test.csv`
+    : `./output/crawl-by-manufacturers/products-medusa.csv`;
   convertJsonToCsv(medusaFile, csvFile);
-  console.log("Đã xuất dữ liệu sản phẩm ở dạng csv");
 }
 
 export function exportCrawlInfo({
@@ -355,4 +362,106 @@ export function exportCrawlInfo({
   );
 
   console.log("Đã xuất thông tin crawl");
+}
+
+/**
+ * Merges an array of product variant data into a consolidated array of search index entries.
+ *
+ * @param data - An array of product variant objects, each containing the following properties:
+ *   - `id`: The unique identifier for the product variant.
+ *   - `handler`: The handler or identifier for the product.
+ *   - `title`: The title of the product.
+ *   - `category`: The category to which the product belongs.
+ *   - `short_description`: A short description of the product.
+ *   - `description`: A detailed description of the product.
+ *   - `variant`: The variant identifier of the product.
+ *
+ * @returns An array of `SearchIndex` objects, where each object represents a consolidated product entry with merged variants.
+ */
+export function mergeVariant(
+  data: {
+    id: string;
+    handler: string;
+    title: string;
+    category: string;
+    short_description: string;
+    description: string;
+    variant: string;
+    thumbnail: string;
+  }[]
+): SearchIndex[] {
+  const mergedData: SearchIndex[] = [];
+  let documentId = 0;
+  data.forEach((product) => {
+    const index = mergedData.findIndex(
+      (item) => item.handler === product.handler
+    );
+    if (index === -1) {
+      documentId++;
+      mergedData.push({
+        id: documentId.toString(),
+        handler: product.handler,
+        title: product.title,
+        category: product.category,
+        short_description: product.short_description,
+        description: product.description,
+        variants: [product.variant],
+        thumbnail: product.thumbnail,
+      });
+    } else {
+      // If the variant is not already in the array, add it
+      for (const variant of product.variant) {
+        if (!mergedData[index].variants.includes(variant)) {
+          mergedData[index].variants.push(variant);
+        }
+      }
+    }
+  });
+
+  return mergedData;
+}
+
+export async function getNumberOfPages(page: Page): Promise<number> {
+  // Lấy số trang sản phẩm
+  let numberOfPages = 1;
+  let haveLastPage = true;
+  let haveMoreThanOnePage = true;
+
+  // Kiểm tra xem có trang cuối cùng không
+  haveLastPage = await expect(
+    page.locator(".products-wrapper").locator(".last-page")
+  )
+    .toHaveCount(1, { timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+
+  if (haveLastPage) {
+    numberOfPages = Number(
+      await page
+        .locator(".products-wrapper")
+        .locator(".last-page")
+        .first()
+        .locator("a")
+        .getAttribute("data-page")
+    );
+  } else {
+    // Kiểm tra xem có số trang có nhiều hơn 1 không
+    haveMoreThanOnePage = await expect(
+      page.locator(".products-wrapper").locator(".next-page")
+    )
+      .toHaveCount(1, { timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+    if (haveMoreThanOnePage) {
+      numberOfPages =
+        (
+          await page
+            .locator(".products-wrapper")
+            .locator(".pager")
+            .locator("li")
+            .all()
+        ).length - 1;
+    }
+  }
+  return numberOfPages;
 }

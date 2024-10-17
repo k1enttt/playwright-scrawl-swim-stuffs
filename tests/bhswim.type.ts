@@ -1,5 +1,5 @@
 export type RawProduct = {
-  handler: string;
+  handle: string;
   title: string;
   manufacturer: string | null;
   category: string | null;
@@ -77,6 +77,8 @@ export type MedusaProduct = {
   "Image 9 Url": string;
   "Image 10 Url": string;
   "Sales Channel 1 Name": string;
+  "Product Category 1 Handle": string;
+  "Product Category 1 Name": string;
 };
 
 export type SearchIndex = {
@@ -86,5 +88,6 @@ export type SearchIndex = {
   category: string;
   short_description: string;
   description: string;
-  variant: string;
+  variants: string[];
+  thumbnail: string;
 }
