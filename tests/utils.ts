@@ -243,16 +243,20 @@ export const convertRawToMedusaProduct = (
     "Image 8 Url": "",
     "Image 9 Url": "",
     "Image 10 Url": "",
+    "Image 11 Url": "",
+    "Image 12 Url": "",
+    "Image 13 Url": "",
+    "Image 14 Url": "",
+    "Image 15 Url": "",
     "Sales Channel 1 Name": "Default Sale Channel",
     "Product Category 1 Handle": categoryHandle || "",
     "Product Category 1 Name": rawProduct.category || "",
   };
 
-  for (const image in rawProduct.images) {
-    if (parseInt(image) >= 10) {
-      break;
+  if (rawProduct.images) {
+    for (let i = 1; i <= 15; i++) {
+      product[`Image ${i} Url`] = rawProduct.images[i] || "";
     }
-    product[`Image ${parseInt(image) + 1} Url`] = rawProduct.images[image];
   }
 
   return product;
@@ -309,7 +313,7 @@ export function convertRawToSearchingData(
     }
     return {
       id: (++count).toString(),
-      handler: product["Product Handle"],
+      handle: product["Product Handle"],
       title: product["Product Title"],
       category: product["Product Category 1 Name"],
       short_description: product["Product Subtitle"],
@@ -381,7 +385,7 @@ export function exportCrawlInfo({
 export function mergeVariant(
   data: {
     id: string;
-    handler: string;
+    handle: string;
     title: string;
     category: string;
     short_description: string;
@@ -394,13 +398,13 @@ export function mergeVariant(
   let documentId = 0;
   data.forEach((product) => {
     const index = mergedData.findIndex(
-      (item) => item.handler === product.handler
+      (item) => item.handle === product.handle
     );
     if (index === -1) {
       documentId++;
       mergedData.push({
         id: documentId.toString(),
-        handler: product.handler,
+        handle: product.handle,
         title: product.title,
         category: product.category,
         short_description: product.short_description,

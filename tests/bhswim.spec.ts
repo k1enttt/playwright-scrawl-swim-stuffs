@@ -1477,7 +1477,7 @@ async function getProductVariant({
       const isDisabledOption =
         (await inputLocator.getAttribute("disabled", {
           timeout: 5000,
-        })) != null;
+        }).catch(()=>{})) != null;
 
       if (isDisabledOption) {
         return false;
