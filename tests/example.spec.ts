@@ -1,23 +1,33 @@
-import { test, expect } from '@playwright/test';
-import { checkValidId, convertJsonToCsv, convertRawToSearchingData, mergeVariant, removeDiacritics, removeOthers, sleep } from './utils';
-import { MedusaProduct, RawProduct, SearchIndex } from './bhswim.type';
+import { test, expect } from "@playwright/test";
+import {
+  checkValidId,
+  convertJsonToCsv,
+  convertRawToSearchingData,
+  mergeVariant,
+  removeDiacritics,
+  removeOthers,
+  sleep,
+} from "./utils";
+import { MedusaProduct, RawProduct, SearchIndex } from "./bhswim.type";
 import fs from "fs";
 
-test('has title', async ({ page }) => {
-  await page.goto('https://playwright.dev/');
+test("has title", async ({ page }) => {
+  await page.goto("https://playwright.dev/");
 
   // Expect a title "to contain" a substring.
   await expect(page).toHaveTitle(/Playwright/);
 });
 
-test('get started link', async ({ page }) => {
-  await page.goto('https://playwright.dev/');
+test("get started link", async ({ page }) => {
+  await page.goto("https://playwright.dev/");
 
   // Click the get started link.
-  await page.getByRole('link', { name: 'Get started' }).click();
+  await page.getByRole("link", { name: "Get started" }).click();
 
   // Expects page to have a heading with the name of Installation.
-  await expect(page.getByRole('heading', { name: 'Installation' })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Installation" })
+  ).toBeVisible();
 });
 
 test("lấy-số-lượng-từng-option", async ({ page }) => {
@@ -404,8 +414,8 @@ test("vào-từng-cate", async ({ page }) => {
 test("crawl-multitags", async ({ page }) => {
   const productList = [
     "https://bhswim.com/%C3%A1o-b%C6%A1i-thi-%C4%91%E1%BA%A5u-n%E1%BB%AF-tyr-womens-avictor-20-exolon-closed-back-swimsuit",
-    "https://bhswim.com/k%C3%ADnh-b%C6%A1i-tr%C3%A1ng-g%C6%B0%C6%A1ng-tyr-black-ops-140-ev-adult-2"
-  ]
+    "https://bhswim.com/k%C3%ADnh-b%C6%A1i-tr%C3%A1ng-g%C6%B0%C6%A1ng-tyr-black-ops-140-ev-adult-2",
+  ];
 
   for (let product of productList) {
     const secondPage = await page.context().newPage();
@@ -415,7 +425,7 @@ test("crawl-multitags", async ({ page }) => {
       console.log(await tag.innerText());
     }
   }
-})
+});
 
 test("Lăn chuột xuống cuối trang", async ({ page }) => {
   test.setTimeout(6 * 60 * 60 * 1000);
@@ -538,7 +548,6 @@ test("Lấy danh sách sản phẩm từ category", async ({ page }) => {
     .all();
 });
 
-
 /**
  * Test dùng để gộp hết dữ liệu crawl từ các file trong thư mục output/crawl thành một file duy nhất
  * và xuất ra thành index documents thành file search.json dùng để tìm kiếm
@@ -618,7 +627,7 @@ test("Làm sạch handler cho search index documents", () => {
   const cleanedProducts: SearchIndex[] = products.map((product) => {
     return {
       ...product,
-      handler: removeOthers(removeDiacritics(product.handler)),
+      handler: removeOthers(removeDiacritics(product.handle)),
     };
   });
 
@@ -631,10 +640,13 @@ test("Làm sạch handler cho search index documents", () => {
  */
 test("Gộp các variant của cùng một sản phẩm thành 1 document", () => {
   // Đọc dữ liệu từ file search.json
-  const searchIndexes = fs.readFileSync("./output/search.json", "utf-8");
+  const searchIndexes = fs.readFileSync(
+    "./output/crawl-by-manufacturers/meilisearch.json",
+    "utf-8"
+  );
   const data = JSON.parse(searchIndexes) as {
     id: string;
-    handler: string;
+    handle: string;
     title: string;
     category: string;
     short_description: string;
@@ -646,8 +658,20 @@ test("Gộp các variant của cùng một sản phẩm thành 1 document", () =
   // Gộp các variant của cùng một sản phẩm thành 1 document
   const mergedData = mergeVariant(data);
 
+  // Tách category thành mảng các category
+  const productsWithCategories = mergedData.map((item) => {
+    const categories = item.category.split(",");
+    return {
+      ...item,
+      category: categories,
+    };
+  });
+
   // Xuất dữ liệu ra file search.json
-  fs.writeFileSync("./output/search.json", JSON.stringify(mergedData));
+  fs.writeFileSync(
+    "./output/final/meilisearch-converted.json",
+    JSON.stringify(productsWithCategories)
+  );
 });
 
 /**
@@ -712,4 +736,31 @@ test("Xóa các variant lặp lại trong search index documents", () => {
 
   // Xuất dữ liệu ra file search.json
   fs.writeFileSync("./output/search.json", JSON.stringify(cleanedData));
+});
+
+test("Liệt kê các category đã crawl", async () => {
+  const searchIndexesFiles = [
+    "meilisearch-1-converted.json",
+    "meilisearch-2-converted.json",
+  ];
+
+  const searchIndexes: SearchIndex[] = [];
+  const categories: string[] = [];
+
+  for (let file of searchIndexesFiles) {
+    const readStream = fs.readFileSync(
+      `./output/crawl-by-manufacturers/${file}`,
+      "utf-8"
+    );
+    const data = JSON.parse(readStream) as SearchIndex[];
+    searchIndexes.push(...data);
+  }
+
+  for (let item of searchIndexes) {
+    if (!categories.includes(item.category)) {
+      categories.push(item.category);
+    }
+  }
+
+  console.log(categories);
 });

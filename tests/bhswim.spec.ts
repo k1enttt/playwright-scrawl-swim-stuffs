@@ -407,7 +407,7 @@ async function getProductOld(
           .locator(".product-essential")
           .getByTitle(optionValue, { exact: true })
           .locator("span")
-          .click();
+          .click({ timeout: 5000 });
         const response = await reponsePromise;
 
         // Lấy số lượng sản phẩm nếu có response 200 từ server
@@ -458,7 +458,7 @@ async function getProductOld(
           .filter({ hasText: optionValue })
           .locator("span")
           .last();
-        await buttonLocator.click();
+        await buttonLocator.click({ timeout: 5000 });
         const response = await reponsePromise;
 
         // Lấy số lượng sản phẩm nếu có response 200 từ server
@@ -485,7 +485,7 @@ async function getProductOld(
             .catch(() => null);
 
           // Click vào option và chờ response trả về với status 200
-          await page.getByText(optionValue, { exact: true }).click();
+          await page.getByText(optionValue, { exact: true }).click({timeout: 5000});
           const response = await reponsePromise;
 
           // Lấy số lượng sản phẩm nếu có response 200 từ server
@@ -769,6 +769,9 @@ async function getProductOld(
 test("Bad cases", async ({ page }) => {
   test.setTimeout(10 * 60 * 1000);
   const productUrl = {
+    // Option cuông có hình ảnh
+    "Kính bơi tráng gương TYR Tracer-X Racing Mirrored Nano Goggles":
+      "https://bhswim.com/k%C3%ADnh-b%C6%A1i-tr%C3%A1ng-g%C6%B0%C6%A1ng-tyr-tracer-x-racing-mirrored-nano-goggles",
     "Áo bơi TYR American Dream Diamondfit Swimsuit":
       "https://bhswim.com/%C3%A1o-b%C6%A1i-tyr-american-dream-diamondfit-swimsuit",
     "Quần bơi thi đấu TYR Men’s Venzo Camo High-Waist Jammer Swimsuit Nam":
@@ -972,7 +975,7 @@ test("Step 3 - Lấy dữ liệu sản phẩm từ danh sách url sản phẩm",
   function saveCrawlStatus(status: {
     manufacturer: string;
     productIndex: string;
-    productUrl: string
+    productUrl: string;
   }) {
     fs.writeFileSync(
       "./output/crawl-by-manufacturers/step3-status.json",
@@ -985,14 +988,19 @@ test("Step 3 - Lấy dữ liệu sản phẩm từ danh sách url sản phẩm",
     "./output/crawl-by-manufacturers/product-urls.json",
     "utf-8"
   );
-  const productUrls = JSON.parse(
-    fileData
-  ) as { productUrl: string; manufacturer: string }[];
+  const productUrls = JSON.parse(fileData) as {
+    productUrl: string;
+    manufacturer: string;
+  }[];
 
   // Lấy dữ liệu sản phẩm từ từng url
   const products: RawProduct[] = [];
   for (let i = 0; i < productUrls.length; i++) {
-    const productVariants = await getProduct(page, baseUrl + productUrls[i].productUrl, productUrls[i].manufacturer);
+    const productVariants = await getProduct(
+      page,
+      baseUrl + productUrls[i].productUrl,
+      productUrls[i].manufacturer
+    );
     products.push(...productVariants);
 
     // Lưu danh sách sản phẩm vào file /output/crawl-by-manufacturers/products-medusa.json
@@ -1045,8 +1053,8 @@ async function getProductCategory(page: Page, productUrl: string) {
         throw `Không lấy được url của category, ${productUrl}`;
       });
 
-    // Lấy category nếu không phải là trang chủ và không phải là trang sản phẩm
-    if (url != "/" && index != categoryLocators.length - 1) {
+    // Lấy category nếu không phải là trang chủ
+    if (url != "/") {
       categories.push(label);
     }
   });
@@ -1316,7 +1324,7 @@ async function getProductVariant({
           .locator(".product-essential")
           .getByTitle(optionValue, { exact: true })
           .locator("span")
-          .click();
+          .click({timeout: 5000});
         const response = await reponsePromise;
 
         // Lấy số lượng sản phẩm nếu có response 200 từ server
@@ -1331,9 +1339,14 @@ async function getProductVariant({
       // Trường hợp option có label và value rỗng
       // Ví dụ: https://bhswim.com/%C3%A1o-b%C6%A1i-thi-%C4%91%E1%BA%A5u-n%E1%BB%AF-tyr-womens-avictor-20-exolon-closed-back-swimsuit
 
-      variantTitle = `Mặc định ${valueIndex + 1}`;
+      variantTitle = await page
+        .locator(".attributes")
+        .locator("li")
+        .filter({ has: page.getByText(optionValue, { exact: true }) })
+        .locator(".tooltip-header")
+        .innerText();
       options = {};
-      options["Mặc định"] = variantTitle;
+      options[optionKeys[0]] = variantTitle;
 
       // Kiểm tra option có disabled hay không
       const inputLocator = page
@@ -1366,10 +1379,10 @@ async function getProductVariant({
           .locator(".attributes")
           .first()
           .locator("li")
-          .filter({ hasText: optionValue })
+          .filter({ has: page.getByText(optionValue, { exact: true }) })
           .locator("span")
           .last();
-        await buttonLocator.click();
+        await buttonLocator.click({timeout: 5000});
         const response = await reponsePromise;
 
         // Lấy số lượng sản phẩm nếu có response 200 từ server
@@ -1398,7 +1411,7 @@ async function getProductVariant({
             .catch(() => null);
 
           // Click vào option và chờ response trả về với status 200
-          await page.getByText(optionValue, { exact: true }).click();
+          await page.getByText(optionValue, { exact: true }).click({timeout: 5000});
           const response = await reponsePromise;
 
           // Lấy số lượng sản phẩm nếu có response 200 từ server
@@ -1475,9 +1488,11 @@ async function getProductVariant({
         .getByRole("radio")
         .first();
       const isDisabledOption =
-        (await inputLocator.getAttribute("disabled", {
-          timeout: 5000,
-        }).catch(()=>{})) != null;
+        (await inputLocator
+          .getAttribute("disabled", {
+            timeout: 5000,
+          })
+          .catch(() => {})) != null;
 
       if (isDisabledOption) {
         return false;
@@ -1496,7 +1511,7 @@ async function getProductVariant({
           .locator(".attributes")
           .first()
           .locator("li")
-          .filter({ hasText: value })
+          .filter({ has: page.getByText(value, { exact: true }) })
           .locator("span")
           .last()
           .click({ timeout: 5000 });
@@ -1676,7 +1691,11 @@ async function getProductVariant({
   return products;
 }
 
-async function getProduct(page: Page, productUrl: string, manufacturer: string) {
+async function getProduct(
+  page: Page,
+  productUrl: string,
+  manufacturer: string
+) {
   // Mở trang web
   await page.goto(productUrl, {
     waitUntil: "domcontentloaded",

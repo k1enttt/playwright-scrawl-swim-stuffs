@@ -414,10 +414,8 @@ export function mergeVariant(
       });
     } else {
       // If the variant is not already in the array, add it
-      for (const variant of product.variant) {
-        if (!mergedData[index].variants.includes(variant)) {
-          mergedData[index].variants.push(variant);
-        }
+        if (!mergedData[index].variants.includes(product.variant)) {
+          mergedData[index].variants.push(product.variant);
       }
     }
   });
