@@ -173,9 +173,10 @@ export const convertRawToMedusaProduct = (
   const categories = rawProduct.category?.split(",");
   const categoryHandle = categories
     ?.map((category) =>
-      removeOthers(
-        removeDiacritics(category.toLowerCase())
-      ).replace(/\s+/g, "-")
+      removeOthers(removeDiacritics(category.toLowerCase())).replace(
+        /\s+/g,
+        "-"
+      )
     )
     .join("_");
 
@@ -248,6 +249,7 @@ export const convertRawToMedusaProduct = (
     "Image 13 Url": "",
     "Image 14 Url": "",
     "Image 15 Url": "",
+    "Sales Channel 1 Id": "Default Sales Channel",
     "Sales Channel 1 Name": "Default Sale Channel",
     "Product Category 1 Handle": categoryHandle || "",
     "Product Category 1 Name": rawProduct.category || "",
@@ -406,7 +408,7 @@ export function mergeVariant(
         id: documentId.toString(),
         handle: product.handle,
         title: product.title,
-        category: product.category,
+        category: product.category.split(","),
         short_description: product.short_description,
         description: product.description,
         variants: [product.variant],
@@ -414,8 +416,8 @@ export function mergeVariant(
       });
     } else {
       // If the variant is not already in the array, add it
-        if (!mergedData[index].variants.includes(product.variant)) {
-          mergedData[index].variants.push(product.variant);
+      if (!mergedData[index].variants.includes(product.variant)) {
+        mergedData[index].variants.push(product.variant);
       }
     }
   });

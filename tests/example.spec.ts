@@ -658,19 +658,10 @@ test("Gộp các variant của cùng một sản phẩm thành 1 document", () =
   // Gộp các variant của cùng một sản phẩm thành 1 document
   const mergedData = mergeVariant(data);
 
-  // Tách category thành mảng các category
-  const productsWithCategories = mergedData.map((item) => {
-    const categories = item.category.split(",");
-    return {
-      ...item,
-      category: categories,
-    };
-  });
-
   // Xuất dữ liệu ra file search.json
   fs.writeFileSync(
     "./output/final/meilisearch-converted.json",
-    JSON.stringify(productsWithCategories)
+    JSON.stringify(mergedData)
   );
 });
 
@@ -739,28 +730,93 @@ test("Xóa các variant lặp lại trong search index documents", () => {
 });
 
 test("Liệt kê các category đã crawl", async () => {
-  const searchIndexesFiles = [
-    "meilisearch-1-converted.json",
-    "meilisearch-2-converted.json",
-  ];
+  const searchIndexesFiles = ["meilisearch-converted.json"];
 
   const searchIndexes: SearchIndex[] = [];
-  const categories: string[] = [];
+  const categories: { label: string; handle: string }[] = [];
 
   for (let file of searchIndexesFiles) {
-    const readStream = fs.readFileSync(
-      `./output/crawl-by-manufacturers/${file}`,
-      "utf-8"
-    );
+    const readStream = fs.readFileSync(`./output/final/${file}`, "utf-8");
     const data = JSON.parse(readStream) as SearchIndex[];
     searchIndexes.push(...data);
   }
 
   for (let item of searchIndexes) {
-    if (!categories.includes(item.category)) {
-      categories.push(item.category);
+    const label = item.category.join(",");
+    const handle = item.category
+      .map((category) => removeOthers(removeDiacritics(category.toLowerCase())))
+      .join("_");
+    const index = categories.findIndex((category) => category.label === label);
+    if (index === -1) {
+      categories.push({
+        label,
+        handle,
+      });
     }
   }
 
-  console.log(categories);
+  fs.writeFileSync(
+    "./output/final/categories.json",
+    JSON.stringify(categories)
+  );
+});
+
+// Chèn trường quản lý Sales Channel 1 Id vào từng sản phẩm với giá trị là "Default Sales Channel"
+// Trường này phải được đặt ngay trước trường "Sales Channel 1 Name"
+test("Thêm trường Sales Channel 1 Id vào products.json", async () => {
+  // Đọc file products.json trong /output/final/
+  const data = fs.readFileSync("./output/final/products.json", "utf-8");
+  const products = JSON.parse(data) as MedusaProduct[];
+
+  // B1: Xóa các trường sau Sales Channel 1 Name;Product Category 1 Handle;Product Category 1 Name
+  const updatedData = products.map((product: MedusaProduct) => {
+    const keys = Object.keys(product);
+    const newProduct = {};
+
+    for (let key of keys) {
+      if (
+        key === "Sales Channel 1 Name" ||
+        key === "Product Category 1 Handle" ||
+        key === "Product Category 1 Name"
+      ) {
+        break;
+      }
+      newProduct[key] = product[key];
+    }
+
+    return newProduct;
+  });
+
+  // B2: Thêm trường Sales Channel 1 Id và các trường đã xóa ở B1 vào từng sản phẩm theo thứ tự Sales Channel 1 Id;Sales Channel 1 Name;Product Category 1 Handle;Product Category 1 Name
+  const semifinalData = updatedData.map((product) => {
+    return {
+      ...product,
+      "Sales Channel 1 Id": "Default Sales Channel",
+      "Sales Channel 1 Name": "Default Sales Channel",
+    };
+  });
+  const finalData = semifinalData.map((product) => {
+    const oldData = products.find(
+      (oldProduct: MedusaProduct) =>
+        oldProduct["Product Handle"] === product["Product Handle"]
+    );
+    if (!oldData) return null;
+    return {
+      ...product,
+      "Product Category 1 Handle": oldData["Product Category 1 Handle"] || "",
+      "Product Category 1 Name": oldData["Product Category 1 Name"] || "",
+    };
+  });
+
+  // Xuất dữ liệu ra file products.json
+  fs.writeFileSync(
+    "./output/crawl-by-manufacturers/products-added-channel-id.json",
+    JSON.stringify(finalData), {
+      encoding: "utf-8",
+    }
+  );
+  convertJsonToCsv(
+    "./output/crawl-by-manufacturers/products-added-channel-id.json",
+    "./output/crawl-by-manufacturers/products-added-channel-id.csv"
+  );
 });
