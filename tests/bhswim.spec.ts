@@ -691,8 +691,8 @@ async function getProductOld(
       priceVnd: productPrice ? Number(productPrice) : null,
       category,
       manufacturer: manufacturer || null,
-      shortDescription,
-      description,
+      shortDescription: shortDescription || "",
+      description: description || "",
       thumbnail: imageSrcList[0],
       images: imageSrcList,
       variant: {
@@ -701,8 +701,10 @@ async function getProductOld(
         priceVnd: productPrice ? Number(productPrice) : null,
         options: {},
         manageInventory: true,
+        allowBackOrder: false,
       },
       status: "published",
+      discountable: true,
     });
   } else if (optionKeys.length === 1) {
     for (let i = 0; i < optionValues[0].values.length; i++) {
@@ -718,8 +720,8 @@ async function getProductOld(
         priceVnd: productPrice ? Number(productPrice) : null,
         category,
         manufacturer: manufacturer || null,
-        shortDescription,
-        description,
+        shortDescription: shortDescription || "",
+        description: description || "",
         thumbnail: imageSrcList[0],
         images: imageSrcList,
         variant: {
@@ -727,8 +729,11 @@ async function getProductOld(
           inventoryQuantity,
           priceVnd,
           options,
+          allowBackOrder: false,
+          manageInventory: false
         },
         status: "published",
+        discountable: true,
       });
     }
   } else if (optionKeys.length === 2) {
@@ -743,8 +748,8 @@ async function getProductOld(
           priceVnd: productPrice ? Number(productPrice) : null,
           category,
           manufacturer: manufacturer || null,
-          shortDescription,
-          description,
+          shortDescription: shortDescription || "",
+          description: description || "",
           thumbnail: imageSrcList[0],
           images: imageSrcList,
           variant: {
@@ -753,8 +758,10 @@ async function getProductOld(
             priceVnd,
             options,
             manageInventory: true,
+            allowBackOrder: false,
           },
           status: "published",
+          discountable: true,
         });
       }
     }
@@ -925,7 +932,7 @@ test("Step 2 - Lấy danh sách sản phẩm từ manufacturer", async ({ page }
           })
           .catch(async () => {
             console.log(
-              `Không lấy được url sản phẩm\n Trang: ${i} - Sản phẩm thứ ${index}`
+              `Error: Không lấy được url sản phẩm - Trang: ${i} - Sản phẩm thứ ${index}`
             );
           });
       });
@@ -1629,8 +1636,10 @@ async function getProductVariant({
         priceVnd,
         options: {},
         manageInventory: true,
+        allowBackOrder: false,
       },
       status: "published",
+      discountable: true,
     });
   } else if (optionKeys.length === 1) {
     for (let i = 0; i < optionValues[0].values.length; i++) {
@@ -1655,8 +1664,11 @@ async function getProductVariant({
           inventoryQuantity,
           priceVnd,
           options,
+          allowBackOrder: false,
+          manageInventory: true,
         },
         status: "published",
+        discountable: true,
       });
     }
   } else if (optionKeys.length === 2) {
@@ -1681,8 +1693,10 @@ async function getProductVariant({
             priceVnd,
             options,
             manageInventory: true,
+            allowBackOrder: false
           },
           status: "published",
+          discountable: true,
         });
       }
     }
@@ -1732,3 +1746,15 @@ type Option = {
   type: "squareWithLabel" | "squareWithImage" | "circle";
   values: string[];
 };
+
+test("Get with data raw", async ({ page }) => {
+  const response = await fetch("http://localhost:9000/auth/user/emailpass", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ "email": "kientathuc@gmail.com",  "password": "supersecret"})
+  });
+  const data = await response.json();
+  console.log(data['token']);
+})

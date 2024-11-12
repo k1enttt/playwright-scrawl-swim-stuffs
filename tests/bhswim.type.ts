@@ -2,21 +2,21 @@ export type RawProduct = {
   handle: string;
   title: string;
   manufacturer: string | null;
-  category: string | null;
-  status: "published" | "draft";
-  discountable?: boolean;
-  shortDescription: string | null;
-  description: string | null;
-  thumbnail: string | null;
+  category: string;
+  status: "draft" | "proposed" | "published" | "rejected";
+  discountable: boolean;
+  shortDescription: string;
+  description: string;
+  thumbnail: string;
   images: string[] | null;
   priceVnd: number | null;
-  variant?: {
+  variant: {
     title: string;
     inventoryQuantity: number | null;
-    allowBackOrder?: boolean;
+    allowBackOrder: boolean;
     priceVnd: number | null;
     options: Record<string, string>;
-    manageInventory?: boolean;
+    manageInventory: boolean;
   } | null;
 };
 
@@ -26,7 +26,7 @@ export type MedusaProduct = {
   "Product Title": string;
   "Product Subtitle": string;
   "Product Description": string;
-  "Product Status": "published" | "draft";
+  "Product Status": "draft" | "proposed" | "published" | "rejected";
   "Product Thumbnail": string;
   "Product Weight": string;
   "Product Length": string;

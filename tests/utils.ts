@@ -2,6 +2,13 @@ import csvjson from "csvjson";
 import fs from "fs";
 import { MedusaProduct, RawProduct, SearchIndex } from "./bhswim.type";
 import { expect, Page } from "@playwright/test";
+import { MedusaProductV2, Product } from "./bhswimv2.type";
+import { createProductCategory, listProductCategories } from "./api";
+
+export const constaint = {
+  default_sales_channel_id: "sc_01JBQRKMSEMNKX075ZB2VH5R3P",
+  location_id: "sloc_01JC9Y20J3B9S5RNFV38SC5C4E", // Vietname warehouse
+};
 
 const diacriticsMap: { [key: string]: string } = {
   á: "a",
@@ -468,4 +475,227 @@ export async function getNumberOfPages(page: Page): Promise<number> {
     }
   }
   return numberOfPages;
+}
+
+async function createParentCategoryIfNotExist(
+  token: string,
+  category: { label: string; handle: string }
+): Promise<string | null> {
+  const labels = category.label.split(",");
+  const handles = category.handle.split("_");
+  let parentCategoryId: string | null = null;
+
+  for (let i = 0; i < labels.length; i++) {
+    const label = labels[i];
+    const handle = handles.slice(0, i + 1).join("_");
+    console.log("Info: " + label);
+
+    // Check if category already exists
+    let isExisted = false;
+    const allCategories = (await listProductCategories(token))
+      .product_categories;
+
+    for (const c of allCategories) {
+      if (c.handle === handle) {
+        isExisted = true;
+        parentCategoryId = c.id;
+        break;
+      }
+      for (const child of c.category_children) {
+        if (child.handle === handle) {
+          isExisted = true;
+          parentCategoryId = child.id;
+          break;
+        }
+      }
+      if (isExisted) break;
+    }
+    if (isExisted) {
+      console.log("Info: Category existed.");
+    }
+
+    // If it doesn't exist, create a new one
+    if (!isExisted) {
+      const response = await createProductCategory(token, {
+        name: label,
+        handle,
+        parent_id: parentCategoryId,
+      });
+      parentCategoryId = response.product_category.id;
+      console.log("Success: Category created successfully.");
+    }
+  }
+  return parentCategoryId;
+}
+
+const rawProduct: RawProduct = {
+  handle: "handle",
+  title: "title",
+  manufacturer: "manufacturer",
+  category: "category1,cateogry2",
+  status: "draft",
+  discountable: true,
+  shortDescription: "shortDescription",
+  description: "description",
+  thumbnail: "thumbnail",
+  images: ["image1", "image2"],
+  priceVnd: 1000000,
+  variant: {
+    title: "variant",
+    inventoryQuantity: 10,
+    allowBackOrder: false,
+    priceVnd: 1000000,
+    options: { option1: "value1", option2: "value2" },
+    manageInventory: true,
+  },
+};
+export async function convertProductToMedusaProductV2(
+  token: string,
+  rawData: Product
+): Promise<MedusaProductV2> {
+  // Lấy tất cả categories về và tìm category có handle tương ứng
+  // Nếu không tìm thấy thì tạo mới category
+  const categoryHandle = rawData.category
+    .split(",")
+    .map((category) =>
+      removeOthers(removeDiacritics(category.toLowerCase())).replace(
+        /\s+/g,
+        "-"
+      )
+    )
+    .join("_");
+  const categoryId = await createParentCategoryIfNotExist(token, {
+    label: rawData.category,
+    handle: categoryHandle,
+  });
+  if (!categoryId) {
+    throw new Error("Error: Failed to get category id");
+  }
+
+  // Lấy danh sách options duy nhất từ variants
+  let options: {
+    title: string;
+    values: string[];
+  }[] = [];
+  rawData.variants?.forEach((rawVariant) => {
+    Object.keys(rawVariant.options).forEach((key) => {
+      if (options?.findIndex((option) => option.title === key) == -1) {
+        options?.push({ title: key, values: [rawVariant.options[key]] });
+      } else {
+        const index = options?.findIndex(
+          (option) =>
+            option.title === key &&
+            !option.values.includes(rawVariant.options[key])
+        );
+        if (index !== -1) {
+          options[index].values.push(rawVariant.options[key]);
+        }
+      }
+    });
+  });
+
+  // Tạo các variant từ variants của rawProduct
+  let variants: {
+    title: string;
+    sku: string;
+    prices: {
+      currency_code: string;
+      amount: number;
+    }[];
+    allow_backorder: boolean;
+    manage_inventory: boolean;
+    options: Record<string, string>;
+  }[] = [];
+
+  if (options.length != 0) {
+    rawData.variants?.forEach((rawVariant) => {
+      const sku =
+        rawData.handle +
+        "-" +
+        removeOthers(removeDiacritics(rawVariant.title.toLowerCase())).replace(
+          /\s+/g,
+          "-"
+        );
+      variants.push({
+        title: rawVariant.title,
+        sku,
+        prices: [
+          {
+            currency_code: "vnd",
+            amount: rawVariant.priceVnd || 0,
+          },
+          {
+            currency_code: "eur",
+            amount: rawVariant.priceVnd ? rawVariant.priceVnd * 0.000037 : 0,
+          },
+          {
+            currency_code: "usd",
+            amount: rawVariant.priceVnd ? rawVariant.priceVnd * 0.00004 : 0,
+          }
+        ],
+        allow_backorder: rawVariant.allowBackOrder,
+        manage_inventory: rawVariant.manageInventory,
+        options: rawVariant.options,
+      });
+    });
+  }
+
+  const product: MedusaProductV2 = {
+    title: rawData.title,
+    subtitle: rawData.shortDescription,
+    description: rawData.description,
+    discountable: rawData.discountable,
+    images: rawData.images
+      ? rawData.images.map((image) => {
+          return { url: image };
+        })
+      : [],
+    thumbnail: rawData.thumbnail,
+    handle: rawData.handle,
+    status: rawData.status,
+    categories: [{ id: categoryId }],
+    sales_channels: [{ id: constaint.default_sales_channel_id }],
+  };
+
+  if (options.length != 0) {
+    product.options = options;
+  } else {
+    product.options = [
+      {
+        title: "Default option",
+        values: ["Default option value"],
+      },
+    ];
+  }
+  if (variants.length != 0) {
+    product.variants = variants;
+  } else {
+    product.variants = [
+      {
+        title: "Default option value",
+        sku: rawData.handle + "-default",
+        prices: [
+          {
+            currency_code: "vnd",
+            amount: rawData.priceVnd || 0,
+          },
+          {
+            currency_code: "eur",
+            amount: rawData.priceVnd ? rawData.priceVnd * 0.000037 : 0,
+          },
+          {
+            currency_code: "usd",
+            amount: rawData.priceVnd ? rawData.priceVnd * 0.00004 : 0,
+          }
+        ],
+        allow_backorder: false,
+        manage_inventory: true,
+        options: {
+          "Default option": "Default option value",
+        },
+      },
+    ];
+  }
+  console.log("Success: Product converted successfully.");
+  return product;
 }
